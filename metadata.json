@@ -1,0 +1,6 @@
+{
+  "name": "Supabase Minimalist Store",
+  "description": "Una tienda web minimalista y optimizada con panel de administración multi-rol (Admin, Gerente, Empleado), sincronización en tiempo real, protección de intentos de login y base de datos Supabase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
