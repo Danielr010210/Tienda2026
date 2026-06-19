@@ -60,14 +60,17 @@ create table if not exists workers (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- Insertar administrador de fábrica:
--- Usuario por defecto: admin
--- Contraseña por defecto: Admin123!
--- Hash SHA-256 de "Admin123!" es "c1c224b03cd9bc7b6a86d77f5dace401917614d1_EJEMPLO"
--- En la app calculamos el SHA-256 real. Aquí tienes un registro inicial.
-insert into workers (username, password_sha256, role, name, is_active)
-values ('admin', '9c2a6b2c2c62c3e10fa48f804ab8daedc040d9039dc4fc09fed02f37e408bf0a', 'admin', 'Administrador Principal', true)
-on conflict (username) do nothing;
+-- Insertar trabajadores por defecto si no existen:
+-- Admin: Admin123!
+-- Gerente: Gerente123!
+-- Empleado: Empleado123!
+insert into workers (username, password_sha256, role, name, phone, is_active)
+values 
+  ('admin', '3eb3fe66b31e3b4d10fa70b5cad49c7112294af6ae4e476a1c405155d45aa121', 'admin', 'Sofía Rodríguez (Admin)', '+506 7000-1111', true),
+  ('gerente', '68e059127789ea920ad39f186b60eaa3acfef029a4c8808d2d271e500c992d4a', 'gerente', 'Carlos Mendoza (Gerente)', '+506 7000-2222', true),
+  ('empleado', 'a5eb10313b9116ce94dc36afd5b653bf03fee85101278b1a0f044ebc21a98a93', 'empleado', 'Mateo Gómez (Empleado)', '+506 7000-3333', true)
+on conflict (username) do update 
+set password_sha256 = excluded.password_sha256;
 
 -- 5. TABLA DE PEDIDOS / FACTURAS
 create table if not exists orders (
@@ -125,10 +128,53 @@ begin
 end $$;
 
 -- Agregamos las tablas clave a la publicación de Realtime para sincronizar clientes y admin en vivo
-alter publication supabase_realtime add table products;
-alter publication supabase_realtime add table orders;
-alter publication supabase_realtime add table workers;
-alter publication supabase_realtime add table security_alerts;
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_rel pr
+    join pg_publication p on p.oid = pr.prpubid
+    join pg_class c on c.oid = pr.prrelid
+    where p.pubname = 'supabase_realtime' and c.relname = 'products'
+  ) then
+    alter publication supabase_realtime add table products;
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_rel pr
+    join pg_publication p on p.oid = pr.prpubid
+    join pg_class c on c.oid = pr.prrelid
+    where p.pubname = 'supabase_realtime' and c.relname = 'orders'
+  ) then
+    alter publication supabase_realtime add table orders;
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_rel pr
+    join pg_publication p on p.oid = pr.prpubid
+    join pg_class c on c.oid = pr.prrelid
+    where p.pubname = 'supabase_realtime' and c.relname = 'workers'
+  ) then
+    alter publication supabase_realtime add table workers;
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_rel pr
+    join pg_publication p on p.oid = pr.prpubid
+    join pg_class c on c.oid = pr.prrelid
+    where p.pubname = 'supabase_realtime' and c.relname = 'security_alerts'
+  ) then
+    alter publication supabase_realtime add table security_alerts;
+  end if;
+end $$;
 
 -- =========================================================
 -- CONSULTA DE MUESTRA PARA PROBAR PRODUCTOS
