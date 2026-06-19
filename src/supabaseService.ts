@@ -4,7 +4,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { Product, Worker, Order, AuditLog, SecurityAlert, ShopSettings } from './types';
+import { Product, Worker, Order, AuditLog, SecurityAlert, ShopSettings, ProductCategory, ProductReview, SupportInquiry } from './types';
 import { generateInvoiceNumber, hashSHA256 } from './utils';
 
 // Helper to check if string is a valid UUID
@@ -87,10 +87,12 @@ const DEFAULT_WORKERS = [
     password_sha256: '3eb3fe66b31e3b4d10fa70b5cad49c7112294af6ae4e476a1c405155d45aa121', // Admin123!
     role: 'admin',
     name: 'Sofía Rodríguez',
-    phone: '+506 7000-1111',
+    phone: '+53 51234567',
     is_active: true,
     failed_attempts: 0,
     locked_until: null,
+    must_reset_password: false,
+    permissions: ['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']
   },
   {
     id: 'w-2',
@@ -98,10 +100,12 @@ const DEFAULT_WORKERS = [
     password_sha256: '68e059127789ea920ad39f186b60eaa3acfef029a4c8808d2d271e500c992d4a', // Gerente123!
     role: 'gerente',
     name: 'Carlos Mendoza',
-    phone: '+506 7000-2222',
+    phone: '+53 52345678',
     is_active: true,
     failed_attempts: 0,
     locked_until: null,
+    must_reset_password: true,
+    permissions: ['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']
   },
   {
     id: 'w-3',
@@ -109,21 +113,27 @@ const DEFAULT_WORKERS = [
     password_sha256: 'a5eb10313b9116ce94dc36afd5b653bf03fee85101278b1a0f044ebc21a98a93', // Empleado123!
     role: 'empleado',
     name: 'Mateo Gómez',
-    phone: '+506 7000-3333',
+    phone: '+53 53456789',
     is_active: true,
     failed_attempts: 0,
     locked_until: null,
+    must_reset_password: true,
+    permissions: ['ver_pedidos', 'ver_inventario']
   }
 ];
 
 const DEFAULT_SETTINGS: ShopSettings = {
   shop_name: 'Boutique Minimal',
   shop_description: 'Artículos premium cuidadosamente seleccionados. Rápido, seguro y en un solo toque.',
-  contact_number: '+34 600 000 000',
-  whatsapp_number: '34600000000',
+  contact_number: '+53 51234567',
+  whatsapp_number: '5351234567',
   business_hours: 'Lunes a Sábado: 09:00 - 20:00 (Domingo cerrado)',
-  address: 'Gran Vía 45, Madrid, España',
-  currency: '€'
+  address: 'Gran Vía 45, La Habana, Cuba',
+  currency: 'CUP',
+  about_visible: true,
+  about_text: 'Bienvenido a Boutique Minimal. Somos una tienda premium enfocada en brindar la mejor calidad de servicio, envíos inmediatos y atención personalizada a nuestra distinguida clientela.',
+  smart_search_text: 'Búsqueda Inteligente Supabase Live',
+  shop_logo_url: ''
 };
 
 const DEFAULT_AUDITS: AuditLog[] = [
@@ -417,7 +427,9 @@ export class SupabaseService {
             phone: dbWorker.phone,
             is_active: dbWorker.is_active,
             failed_attempts: dbWorker.failed_attempts,
-            locked_until: dbWorker.locked_until
+            locked_until: dbWorker.locked_until,
+            must_reset_password: dbWorker.must_reset_password,
+            permissions: dbWorker.permissions
           };
           if (plainPassword || (dbWorker as any).password_sha256) {
             rowData.password_sha256 = plainPassword ? await hashSHA256(plainPassword) : (dbWorker as any).password_sha256;
@@ -801,10 +813,11 @@ export class SupabaseService {
     }
 
     if (!worker.is_active) {
-      return { success: false, error: 'Esta cuenta se encuentra desactivada por el administrador.' };
+      return { success: false, error: 'Esta cuenta se encuentra desactivada o bloqueada por seguridad. Contacte al Administrador o Gerente.' };
     }
 
-    // Check temporary checkout lockout
+    // Check temporary lockout
+    let isReincidenceCheck = false;
     if (worker.locked_until) {
       const lockTime = new Date(worker.locked_until).getTime();
       const diff = lockTime - Date.now();
@@ -812,10 +825,8 @@ export class SupabaseService {
         const minutes = Math.ceil(diff / 60000);
         return { success: false, error: `Sección bloqueada por exceso de intentos erróneos. Reintente en ${minutes} min.` };
       } else {
-        // Lock expired, reset failed attempts
-        worker.failed_attempts = 0;
-        worker.locked_until = null;
-        await this.saveWorker(worker);
+        // Lock expired, do not clear failed attempts yet! Tag active reincidence check.
+        isReincidenceCheck = true;
       }
     }
 
@@ -831,32 +842,303 @@ export class SupabaseService {
       this.logAudit(worker.name, 'Inicio de Sesión', `Acceso concedido para rol ${worker.role}`);
       return { success: true, worker };
     } else {
-      // Increment failures
-      worker.failed_attempts += 1;
       let errorMsg = 'Credenciales inválidas.';
 
-      if (worker.failed_attempts >= 3) {
-        const lockoutMinutes = 5;
-        const lockedDate = new Date(Date.now() + lockoutMinutes * 60000);
-        worker.locked_until = lockedDate.toISOString();
-        errorMsg = 'Cuenta bloqueada temporalmente por 5 minutos.';
+      if (isReincidenceCheck || worker.failed_attempts >= 3) {
+        // Reincidence after 5 minutes lock or additional failure
+        worker.is_active = false;
+        worker.failed_attempts = 0;
+        worker.locked_until = null;
+        errorMsg = 'Cuenta bloqueada permanentemente por reincidencia tras el bloqueo de 5 minutos. Debe ser reactivada por un Administrador o Gerente.';
         
         await this.triggerAlert(
           'bloqueo_usuario',
           'high',
-          `Cuenta de "${worker.name}" (${worker.username}) bloqueada temporalmente por 5 minutos debido a 3 fallas de clave consecutivas.`
+          `Usuario "${worker.name}" (${worker.username}) bloqueado permanentemente por fallar de nuevo la contraseña tras el desbloqueo del tiempo de espera.`
         );
-        this.logAudit('Sistema', 'Bloqueo de Seguridad', `Usuario bloqueado por fallos repetidos: ${worker.username}`);
+        this.logAudit('Sistema', 'Bloqueo Permanente', `Usuario bloqueado de forma incondicional: ${worker.username}`);
       } else {
-        await this.triggerAlert(
-          'intento_fallido',
-          'medium',
-          `Intento fallido de contraseña número ${worker.failed_attempts} para el usuario: "${worker.username}"`
-        );
+        worker.failed_attempts += 1;
+        if (worker.failed_attempts >= 3) {
+          const lockoutMinutes = 5;
+          const lockedDate = new Date(Date.now() + lockoutMinutes * 60000);
+          worker.locked_until = lockedDate.toISOString();
+          errorMsg = 'Cuenta bloqueada temporalmente por 5 minutos.';
+          
+          await this.triggerAlert(
+            'bloqueo_usuario',
+            'high',
+            `Cuenta de "${worker.name}" (${worker.username}) bloqueada temporalmente por 5 minutos debido a 3 fallas de clave consecutivas.`
+          );
+          this.logAudit('Sistema', 'Bloqueo de Seguridad', `Usuario bloqueado por 5m: ${worker.username}`);
+        } else {
+          await this.triggerAlert(
+            'intento_fallido',
+            'medium',
+            `Intento fallido de contraseña número ${worker.failed_attempts} para el usuario: "${worker.username}"`
+          );
+        }
       }
 
       await this.saveWorker(worker);
-      return { success: false, error: `${errorMsg} Intentos: ${worker.failed_attempts}/3` };
+      return { success: false, error: `${errorMsg}` };
+    }
+  }
+
+  // --- DATABASE CONNECTION CHECKER ---
+  static async checkConnection(): Promise<boolean> {
+    if (!this.isReal()) return false;
+    const client = this.getClient();
+    if (!client) return false;
+    try {
+      const { error } = await client.from('workers').select('id').limit(1);
+      return !error;
+    } catch {
+      return false;
+    }
+  }
+
+  // --- PRODUCT CATEGORIES ---
+  static async getCategories(): Promise<ProductCategory[]> {
+    const defaultCats: ProductCategory[] = [
+      { id: 'cat-1', name: 'Tecnología' },
+      { id: 'cat-2', name: 'Audio' },
+      { id: 'cat-3', name: 'Moda' },
+      { id: 'cat-4', name: 'Hogar' },
+      { id: 'cat-5', name: 'Deportes' }
+    ];
+    const local = getLocalStorageItem<ProductCategory[]>('shop_categories', defaultCats);
+    if (!this.isReal()) return local;
+    const client = this.getClient();
+    if (!client) return local;
+    try {
+      const { data, error } = await client.from('product_categories').select('*').order('name');
+      if (error) return local;
+      return data && data.length > 0 ? data : local;
+    } catch {
+      return local;
+    }
+  }
+
+  static async saveCategory(category: ProductCategory): Promise<void> {
+    const cats = await this.getCategories();
+    const idx = cats.findIndex(c => c.id === category.id);
+    if (idx >= 0) {
+      cats[idx] = category;
+    } else {
+      cats.push(category);
+    }
+    setLocalStorageItem('shop_categories', cats);
+
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try {
+          await client.from('product_categories').upsert(category);
+        } catch (e) {
+          console.error('Error saving category to Supabase:', e);
+        }
+      }
+    }
+  }
+
+  static async deleteCategory(id: string): Promise<void> {
+    const cats = await this.getCategories();
+    const filtered = cats.filter(c => c.id !== id);
+    setLocalStorageItem('shop_categories', filtered);
+
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try {
+          await client.from('product_categories').delete().eq('id', id);
+        } catch (e) {
+          console.error('Error deleting category from Supabase:', e);
+        }
+      }
+    }
+  }
+
+  // --- PRODUCT REVIEWS ---
+  static async getReviews(productId: string): Promise<ProductReview[]> {
+    const defaultReviews: ProductReview[] = [];
+    const local = getLocalStorageItem<ProductReview[]>('product_reviews', defaultReviews);
+    const prodReviews = local.filter(r => r.product_id === productId);
+
+    if (!this.isReal()) return prodReviews;
+    const client = this.getClient();
+    if (!client) return prodReviews;
+    try {
+      const { data, error } = await client
+        .from('product_reviews')
+        .select('*')
+        .eq('product_id', productId)
+        .order('created_at', { ascending: false });
+      if (error) return prodReviews;
+      return data || [];
+    } catch {
+      return prodReviews;
+    }
+  }
+
+  static async saveReview(review: ProductReview): Promise<void> {
+    const all = getLocalStorageItem<ProductReview[]>('product_reviews', []);
+    all.push(review);
+    setLocalStorageItem('product_reviews', all);
+
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try {
+          await client.from('product_reviews').insert(review);
+        } catch (e) {
+          console.error('Error saving review to Supabase:', e);
+        }
+      }
+    }
+  }
+
+  static async deleteReview(id: string): Promise<void> {
+    const all = getLocalStorageItem<ProductReview[]>('product_reviews', []);
+    const reviewToRemove = all.find(r => r.id === id);
+    const filtered = all.filter(r => r.id !== id);
+    setLocalStorageItem('product_reviews', filtered);
+
+    if (reviewToRemove) {
+      this.logAudit('Sistema', 'Eliminar Opinión', `Se eliminó crítica de: ${reviewToRemove.reviewer_name} ("${reviewToRemove.comment}")`);
+    }
+
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try {
+          await client.from('product_reviews').delete().eq('id', id);
+        } catch (e) {
+          console.error('Error deleting review from Supabase:', e);
+        }
+      }
+    }
+  }
+
+  // --- SUPPORT INQUIRIES ---
+  static async getSupportInquiries(): Promise<SupportInquiry[]> {
+    const defaultInquiries: SupportInquiry[] = [
+      { 
+        id: 'sop-1', 
+        customer_name: 'Yaniel Alfonso', 
+        customer_phone: '+53 52123456', 
+        type: 'queja', 
+        message: 'No puedo ver el botón de confirmación en mi navegador móvil.', 
+        created_at: new Date(Date.now() - 3600000).toISOString() 
+      }
+    ];
+    const local = getLocalStorageItem<SupportInquiry[]>('support_inquiries', defaultInquiries);
+    if (!this.isReal()) return local;
+    const client = this.getClient();
+    if (!client) return local;
+    try {
+      const { data, error } = await client.from('support_inquiries').select('*').order('created_at', { ascending: false });
+      if (error) return local;
+      return data || [];
+    } catch {
+      return local;
+    }
+  }
+
+  static async saveSupportInquiry(inquiry: SupportInquiry): Promise<void> {
+    const list = await this.getSupportInquiries();
+    list.unshift(inquiry);
+    setLocalStorageItem('support_inquiries', list);
+
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try {
+          await client.from('support_inquiries').insert(inquiry);
+        } catch (e) {
+          console.error('Error saving support inquiry:', e);
+        }
+      }
+    }
+  }
+
+  static async deleteSupportInquiry(id: string): Promise<void> {
+    const list = await this.getSupportInquiries();
+    const filtered = list.filter(item => item.id !== id);
+    setLocalStorageItem('support_inquiries', filtered);
+
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try {
+          await client.from('support_inquiries').delete().eq('id', id);
+        } catch (e) {
+          console.error('Error deleting support inquiry:', e);
+        }
+      }
+    }
+  }
+
+  // --- SYSTEM WIPE UTILITIES FOR ADMIN VACIAR LISTA ---
+  static async clearProducts(): Promise<void> {
+    setLocalStorageItem('shop_products', []);
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try { await client.from('products').delete().neq('name', 'dummy_value_61d9a24'); } catch(e){}
+      }
+    }
+  }
+
+  static async clearWorkers(): Promise<void> {
+    const workers = await this.getWorkers();
+    const adminOnly = workers.filter(w => w.role === 'admin');
+    setLocalStorageItem('shop_workers', adminOnly);
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try { await client.from('workers').delete().neq('role', 'admin'); } catch(e){}
+      }
+    }
+  }
+
+  static async clearOrders(): Promise<void> {
+    setLocalStorageItem('shop_orders', []);
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try { await client.from('orders').delete().neq('invoice_number', 'dummy_val'); } catch(e){}
+      }
+    }
+  }
+
+  static async clearAuditLogs(): Promise<void> {
+    setLocalStorageItem('shop_audits', []);
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try { await client.from('audit_logs').delete().neq('user', 'dummy_val'); } catch(e){}
+      }
+    }
+  }
+
+  static async clearSecurityAlerts(): Promise<void> {
+    setLocalStorageItem('shop_alerts', []);
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try { await client.from('security_alerts').delete().neq('severity', 'dummy_val'); } catch(e){}
+      }
+    }
+  }
+
+  static async clearSupportInquiries(): Promise<void> {
+    setLocalStorageItem('support_inquiries', []);
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try { await client.from('support_inquiries').delete().neq('customer_name', 'dummy_val'); } catch(e){}
+      }
     }
   }
 }

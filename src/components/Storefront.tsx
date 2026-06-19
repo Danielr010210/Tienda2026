@@ -4,12 +4,13 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Product, Order, ShopSettings } from '../types';
+import { Product, Order, ShopSettings, ProductReview, SupportInquiry } from '../types';
 import { SupabaseService } from '../supabaseService';
 import { formatCurrency, generateInvoiceNumber } from '../utils';
 import { 
   ShoppingBag, Search, Tag, AlertTriangle, CheckCircle, 
-  Send, Wifi, WifiOff, RefreshCw, Smartphone, MapPin, Sparkles, X, ChevronRight, CornerDownRight 
+  Send, Wifi, WifiOff, RefreshCw, Smartphone, MapPin, Sparkles, X, ChevronRight, CornerDownRight,
+  Star, Info, Eye, HelpCircle, Database
 } from 'lucide-react';
 
 interface StorefrontProps {
@@ -22,6 +23,9 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
   const [products, setProducts] = useState<Product[]>([]);
   const [settings, setSettings] = useState<ShopSettings | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Active Display Currency (User can toggle CUP, USD, EUR, MLC at any time)
+  const [activeCurrency, setActiveCurrency] = useState('CUP');
 
   // Search & Navigation
   const [selectedCategory, setSelectedCategory] = useState<string>('General');
@@ -36,6 +40,7 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
   const [name, setName] = useState('');
   const [lastname, setLastname] = useState('');
   const [phone, setPhone] = useState('');
+  const [phoneCountry, setPhoneCountry] = useState('+53'); // Default Cuba +53
   const [address, setAddress] = useState('');
   const [reference, setReference] = useState('');
   const [nickname, setNickname] = useState('');
@@ -46,6 +51,38 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
 
   // Offline status
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  // Detail Modal for Product Reviews / Star rating
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [reviews, setReviews] = useState<ProductReview[]>([]);
+  const [newReviewName, setNewReviewName] = useState('');
+  const [newReviewRating, setNewReviewRating] = useState(5);
+  const [newReviewComment, setNewReviewComment] = useState('');
+  const [reviewError, setReviewError] = useState('');
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+
+  // Persistent Client Support Sheets / Complaint
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
+  const [supportName, setSupportName] = useState('');
+  const [supportPhoneCountry, setSupportPhoneCountry] = useState('+53');
+  const [supportPhone, setSupportPhone] = useState('');
+  const [supportType, setSupportType] = useState<'consulta' | 'queja' | 'problema'>('consulta');
+  const [supportMessage, setSupportMessage] = useState('');
+  const [supportSuccess, setSupportSuccess] = useState(false);
+  const [supportError, setSupportError] = useState('');
+  const [isSupportSubmitting, setIsSupportSubmitting] = useState(false);
+
+  // About Modal
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
+
+  // Document Title Sync effect to replace "My Google AI Studio App"
+  useEffect(() => {
+    if (settings?.shop_name) {
+      document.title = settings.shop_name;
+    } else {
+      document.title = 'Boutique Minimal';
+    }
+  }, [settings?.shop_name]);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -67,6 +104,9 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
         const rawSettings = await SupabaseService.getSettings();
         setProducts(rawProds);
         setSettings(rawSettings);
+        if (rawSettings?.currency) {
+          setActiveCurrency(rawSettings.currency);
+        }
       } catch (e) {
         console.error('Error fetching storefront data:', e);
       } finally {
@@ -75,6 +115,22 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
     }
     loadData();
   }, [productsRefresher]);
+
+  // Load reviews when selected product changes in modal
+  useEffect(() => {
+    if (selectedProduct) {
+      loadReviews(selectedProduct.id);
+    }
+  }, [selectedProduct]);
+
+  const loadReviews = async (pId: string) => {
+    try {
+      const pReviews = await SupabaseService.getReviews(pId);
+      setReviews(pReviews);
+    } catch(err) {
+      console.error(err);
+    }
+  };
 
   // Extract all categories dynamically from visible products
   const categories: string[] = ['General', ...Array.from(new Set(products
@@ -183,7 +239,7 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
         invoice_number: finalInvoice,
         customer_name: name.trim(),
         customer_lastname: lastname.trim(),
-        customer_phone: phone.trim(),
+        customer_phone: `${phoneCountry} ${phone.trim()}`,
         customer_address: address.trim(),
         customer_reference: reference.trim().length > 0 ? reference.trim() : undefined,
         customer_nickname: nickname.trim().length > 0 ? nickname.trim() : undefined,
@@ -217,11 +273,11 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
     if (!successOrder || !settings) return;
 
     const contactPhone = settings.whatsapp_number || '34600000000';
-    const currency = settings.currency || '€';
+    const currency = activeCurrency;
 
     let orderLines = '';
     successOrder.items.forEach(item => {
-      orderLines += `• ${item.quantity}x ${item.product_name} - (${currency}${item.price_sold})\n`;
+      orderLines += `• ${item.quantity}x ${item.product_name} - (${currency} ${item.price_sold})\n`;
     });
 
     const isMockModeLabel = SupabaseService.getCredentials().mode === 'mock' ? ' [MODO DEMO]' : '';
@@ -234,7 +290,7 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
       `*Dirección:* ${successOrder.customer_address}\n` +
       `${successOrder.customer_reference ? `*Ref:* ${successOrder.customer_reference}\n` : ''}` +
       `----------------------------------------\n` +
-      `*Productos заказаados:*\n` +
+      `*Productos:* \n` +
       orderLines +
       `----------------------------------------\n` +
       `*Total a pagar: ${formatCurrency(successOrder.total, currency)}*\n\n` +
@@ -242,6 +298,84 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
 
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${contactPhone}&text=${encodeURIComponent(messageText)}`;
     window.open(whatsappUrl, '_blank');
+  };
+
+  // Submit raw review
+  const handleCreateReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProduct) return;
+    setReviewError('');
+    if (!newReviewName.trim()) {
+      setReviewError('Por favor introduce tu nombre.');
+      return;
+    }
+    if (!newReviewComment.trim()) {
+      setReviewError('Por favor escribe un comentario o reseña.');
+      return;
+    }
+
+    setIsSubmittingReview(true);
+    try {
+      const payload = {
+        product_id: selectedProduct.id,
+        customer_name: newReviewName.trim(),
+        rating: newReviewRating,
+        comment: newReviewComment.trim()
+      };
+      await SupabaseService.saveReview(payload as any);
+      setNewReviewComment('');
+      setNewReviewName('');
+      setNewReviewRating(5);
+      // Reload comments
+      await loadReviews(selectedProduct.id);
+    } catch(err) {
+      console.error(err);
+      setReviewError('No se pudo enviar la opinión en este momento.');
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
+  // Submit support inquiry (with loading state and multiple clicks protection)
+  const handleCreateSupportInquiry = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSupportError('');
+    setSupportSuccess(false);
+
+    if (!supportName.trim()) {
+      setSupportError('El nombre es obligatorio.');
+      return;
+    }
+    if (!supportPhone.trim()) {
+      setSupportError('El teléfono es obligatorio.');
+      return;
+    }
+    if (!supportMessage.trim()) {
+      setSupportError('El mensaje de la consulta es obligatorio.');
+      return;
+    }
+
+    setIsSupportSubmitting(true);
+    try {
+      const payload = {
+        customer_name: supportName.trim(),
+        customer_phone: `${supportPhoneCountry} ${supportPhone.trim()}`,
+        inquiry_type: supportType,
+        message: supportMessage.trim(),
+        status: 'pending'
+      };
+      await SupabaseService.saveSupportInquiry(payload as any);
+      setSupportSuccess(true);
+      // Empty fields
+      setSupportName('');
+      setSupportPhone('');
+      setSupportMessage('');
+    } catch(err) {
+      console.error(err);
+      setSupportError('Ocurrió un error al enviar tu reporte, prueba más tarde.');
+    } finally {
+      setIsSupportSubmitting(false);
+    }
   };
 
   return (
@@ -258,25 +392,74 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
       {/* Luxury Minimalist Header */}
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-100 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-slate-900 rounded-lg flex items-center justify-center text-white font-bold text-sm tracking-widest shadow-inner">
-            M
-          </div>
+          {settings?.shop_logo_url ? (
+            <img 
+              src={settings.shop_logo_url} 
+              alt="Logo" 
+              className="w-9 h-9 object-cover rounded-lg border border-gray-200" 
+            />
+          ) : (
+            <div className="w-9 h-9 bg-slate-900 rounded-lg flex items-center justify-center text-white font-bold text-sm tracking-widest shadow-inner">
+              M
+            </div>
+          )}
           <div>
             <h1 className="text-base font-bold text-slate-900 tracking-tight">
               {settings?.shop_name || 'Boutique Minimal'}
             </h1>
-            <p className="text-[10px] text-slate-400 font-medium">Búsqueda Inteligente • Supabase Live</p>
+            <p className="text-[10px] text-slate-400 font-medium">{settings?.smart_search_text || 'Búsqueda Inteligente • Supabase Live'}</p>
           </div>
         </div>
 
         {/* Quick actions */}
-        <div id="nav-actions" className="flex items-center gap-3">
+        <div id="nav-actions" className="flex items-center gap-3 flex-wrap">
+          {/* Currency Dropdown Selector */}
+          <div className="flex items-center gap-1 bg-slate-50 border border-gray-200/80 rounded-lg px-2 py-1 select-none">
+            <span className="text-[9px] font-bold text-slate-400 tracking-wider">DIVISA:</span>
+            <select
+              value={activeCurrency}
+              onChange={(e) => setActiveCurrency(e.target.value)}
+              className="text-xs font-bold text-slate-700 bg-transparent border-none outline-none focus:ring-0 cursor-pointer py-0.5"
+            >
+              <option value="CUP">CUP ($)</option>
+              <option value="USD">USD ($)</option>
+              <option value="EUR">EUR (€)</option>
+              <option value="MLC">MLC ($)</option>
+            </select>
+          </div>
+
+          {/* Quick Support Ticket Button */}
+          <button 
+            onClick={() => {
+              setSupportSuccess(false);
+              setSupportError('');
+              setIsSupportOpen(true);
+            }}
+            className="text-[11px] bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold px-2.5 py-1.5 rounded-lg border border-sky-100 transition-all flex items-center gap-1 cursor-pointer"
+          >
+            <HelpCircle className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Soporte</span>
+          </button>
+
+          {/* Terminal Admin Icon Button */}
           <button 
             onClick={onAdminOpen}
-            className="text-xs bg-slate-50 hover:bg-slate-100 text-slate-600 font-semibold px-3.5 py-1.5 rounded-lg border border-gray-200/60 transition-all shadow-sm cursor-pointer"
+            className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-all cursor-pointer border border-transparent hover:border-gray-100"
+            title="Terminal Admin"
           >
-            Terminal Admin
+            <Database className="w-5 h-5" />
           </button>
+
+          {/* About Modal Trigger Icon */}
+          {settings?.about_visible !== false && (
+            <button 
+              onClick={() => setIsAboutOpen(true)}
+              className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-all cursor-pointer"
+              title="Acerca de la tienda"
+            >
+              <Info className="w-5 h-5" />
+            </button>
+          )}
 
           {/* Cart Icon / Action */}
           <button 
@@ -401,7 +584,7 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
           <div id="product-grid" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredProducts.map(product => {
               const discountedPrice = getPromoPrice(product);
-              const currencySymbol = settings?.currency || '€';
+              const currencySymbol = activeCurrency;
               const isLowStock = product.stock > 0 && product.stock <= 5;
               const isOutOfStock = product.stock <= 0;
 
@@ -480,18 +663,34 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
                         )}
                       </div>
 
-                      <button
-                        onClick={() => addToCart(product)}
-                        disabled={isOutOfStock}
-                        className={`text-xs font-semibold px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
-                          isOutOfStock
-                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                            : 'bg-slate-950 hover:bg-slate-900 text-white active:scale-95 shadow-sm'
-                        }`}
-                      >
-                        <ShoppingBag className="w-3.5 h-3.5" />
-                        <span>Agregar</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setReviewError('');
+                            setNewReviewName('');
+                            setNewReviewRating(5);
+                            setNewReviewComment('');
+                            setSelectedProduct(product);
+                          }}
+                          className="text-xs font-semibold px-3 py-2 text-slate-600 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-xl transition-all border border-gray-200/60 flex items-center gap-1 cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Ver</span>
+                        </button>
+
+                        <button
+                          onClick={() => addToCart(product)}
+                          disabled={isOutOfStock}
+                          className={`text-xs font-semibold px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                            isOutOfStock
+                              ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                              : 'bg-slate-950 hover:bg-slate-900 text-white active:scale-95 shadow-sm'
+                          }`}
+                        >
+                          <ShoppingBag className="w-3.5 h-3.5" />
+                          <span>Agregar</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -683,14 +882,28 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
                   <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">
                     Teléfono Movil <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Numérico (ej: 654321098)"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
-                  />
+                  <div className="flex gap-1.5">
+                    <select
+                      value={phoneCountry}
+                      onChange={(e) => setPhoneCountry(e.target.value)}
+                      className="text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-bold text-slate-700 cursor-pointer"
+                    >
+                      <option value="+53">🇨🇺 +53</option>
+                      <option value="+34">🇪🇸 +34</option>
+                      <option value="+1">🇺🇸 +1</option>
+                      <option value="+52">🇲🇽 +52</option>
+                      <option value="+506">🇨🇷 +506</option>
+                      <option value="+57">🇨🇴 +57</option>
+                    </select>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ej: 51234567"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 shadow-inner"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
@@ -741,7 +954,7 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
                   <span className="text-slate-500 font-medium">Monto final de compra:</span>
                   <p className="text-[10px] text-slate-400">Impuestos y empaque incluidos</p>
                 </div>
-                <strong className="text-base text-slate-900 font-extrabold">{formatCurrency(cartTotal, settings?.currency || '€')}</strong>
+                <strong className="text-base text-slate-900 font-extrabold">{formatCurrency(cartTotal, activeCurrency)}</strong>
               </div>
 
               {/* Dialog buttons */}
@@ -829,12 +1042,346 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
         </div>
       )}
 
+      {/* About Modal overlay */}
+      {isAboutOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col animate-scale-up">
+            <div className="px-5 py-4 bg-slate-950 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Info className="w-5 h-5 text-teal-400" />
+                <h3 className="font-bold text-sm">Sobre Nosotros</h3>
+              </div>
+              <button 
+                onClick={() => setIsAboutOpen(false)}
+                className="p-1 text-slate-300 hover:text-white rounded-lg cursor-pointer animate-fade-in"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto max-h-[70vh] text-xs text-slate-600 space-y-4">
+              <div className="text-center pb-4 border-b border-gray-100">
+                <h4 className="text-base font-bold text-slate-900">{settings?.shop_name || 'Boutique Minimal'}</h4>
+                <p className="text-[10px] text-slate-400 font-medium">Establecimiento de confianza</p>
+              </div>
+              <p className="whitespace-pre-line leading-relaxed text-slate-700">
+                {settings?.about_text || 'Bienvenidos a nuestra tienda virtual premium. Ofrecemos el mejor servicio de despacho local inmediato.'}
+              </p>
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-1">
+                <p className="font-bold text-slate-800 text-[10px] uppercase">Datos de Contacto:</p>
+                <p>📍 Dirección: {settings?.address || 'Sin dirección declarada'}</p>
+                <p>⌚ Horarios: {settings?.business_hours || 'Sin horario declarado'}</p>
+                <p>📞 Teléfono: {settings?.contact_number || 'Sin teléfono'}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Support Inquiry / PQRS Form Modal */}
+      {isSupportOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col animate-scale-up">
+            <div className="px-5 py-4 bg-sky-950 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="w-5 h-5 text-sky-400" />
+                <div>
+                  <h3 className="font-bold text-sm">Soporte y Atención al Cliente</h3>
+                  <p className="text-[9px] text-sky-300">¿Dudas, quejas o problemas? Cuéntanos tu caso</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsSupportOpen(false)}
+                className="p-1 text-slate-300 hover:text-white rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateSupportInquiry} className="p-6 space-y-4">
+              {supportSuccess ? (
+                <div className="p-4 bg-emerald-50 text-emerald-800 border border-emerald-100 rounded-xl text-center space-y-2">
+                  <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto" />
+                  <p className="text-xs font-bold">¡Tu caso ha sido enviado!</p>
+                  <p className="text-[10px] text-slate-500">Nuestro equipo de gerencia y administración atenderá tu solicitud a la brevedad. Gracias por tu reporte.</p>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setSupportSuccess(false);
+                      setIsSupportOpen(false);
+                    }}
+                    className="mt-2 text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-lg font-bold"
+                  >
+                    Entendido
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {supportError && (
+                    <div className="p-3 bg-red-50 text-red-700 border border-red-100 rounded-xl text-xs font-semibold">
+                      {supportError}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Nombre Completo <span className="text-red-500">*</span></label>
+                      <input 
+                        type="text"
+                        required
+                        placeholder="Ej: Sofía Rodríguez"
+                        value={supportName}
+                        onChange={(e) => setSupportName(e.target.value)}
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:ring-1 focus:ring-sky-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Teléfono de Contacto <span className="text-red-500">*</span></label>
+                      <div className="flex gap-1">
+                        <select
+                          value={supportPhoneCountry}
+                          onChange={(e) => setSupportPhoneCountry(e.target.value)}
+                          className="text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:ring-1 focus:ring-sky-500 focus:outline-none font-bold text-slate-700 cursor-pointer"
+                        >
+                          <option value="+53">🇨🇺 +53</option>
+                          <option value="+34">🇪🇸 +34</option>
+                          <option value="+1">🇺🇸 +1</option>
+                          <option value="+52">🇲🇽 +52</option>
+                        </select>
+                        <input 
+                          type="text"
+                          required
+                          placeholder="Ej: 51234567"
+                          value={supportPhone}
+                          onChange={(e) => setSupportPhone(e.target.value)}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:ring-1 focus:ring-sky-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Asunto / Tipo de Solicitud</label>
+                    <select
+                      value={supportType}
+                      onChange={(e) => setSupportType(e.target.value as any)}
+                      className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:ring-1 focus:ring-sky-500 focus:outline-none font-semibold text-slate-700 cursor-pointer"
+                    >
+                      <option value="consulta">Consulta general / Duda</option>
+                      <option value="queja">Queja sobre el servicio / Reclamación</option>
+                      <option value="problema">Problema técnico de cobro o entrega</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Detalle de tu Mensaje <span className="text-red-500">*</span></label>
+                    <textarea 
+                      required
+                      rows={4}
+                      placeholder="Explica detalladamente tu inconformidad o duda sobre un pedido o producto..."
+                      value={supportMessage}
+                      onChange={(e) => setSupportMessage(e.target.value)}
+                      className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:ring-1 focus:ring-sky-500 focus:outline-none resize-none"
+                    />
+                  </div>
+
+                  <div className="flex gap-3 justify-end pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsSupportOpen(false)}
+                      className="text-xs font-semibold text-slate-500 hover:text-slate-700 px-4 py-2 border border-gray-200 rounded-xl hover:bg-slate-50 cursor-pointer"
+                    >
+                      Cerrar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSupportSubmitting}
+                      className="text-xs font-bold bg-sky-600 hover:bg-sky-700 text-white px-5 py-2 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer disabled:bg-slate-300 disabled:cursor-not-allowed"
+                    >
+                      {isSupportSubmitting ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Guardando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Enviar Caso</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Product Details & Ratings Modal overlay */}
+      {selectedProduct && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[90vh] md:max-h-[85vh] animate-scale-up">
+            
+            {/* Product Image Panel */}
+            <div className="w-full md:w-1/2 bg-slate-50 relative flex items-center justify-center border-r border-gray-100 min-h-[220px]">
+              <img 
+                src={selectedProduct.image_url || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=600'} 
+                alt={selectedProduct.name}
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover max-h-[250px] md:max-h-full"
+              />
+              <span className="absolute top-3 left-3 text-[9px] font-bold bg-slate-900 text-white uppercase px-2 py-0.5 rounded shadow-sm">
+                {selectedProduct.category}
+              </span>
+            </div>
+
+            {/* Content & Review Form Panel */}
+            <div className="w-full md:w-1/2 flex flex-col justify-between overflow-y-auto p-6 space-y-4">
+              
+              {/* Header Info */}
+              <div>
+                <div className="flex items-start justify-between">
+                  <h3 className="font-extrabold text-slate-900 text-base leading-tight">{selectedProduct.name}</h3>
+                  <button 
+                    onClick={() => setSelectedProduct(null)}
+                    className="p-1 text-slate-400 hover:text-slate-800 rounded-lg cursor-pointer shrink-0 ml-2"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                
+                <p className="text-xs text-slate-500 mt-2 leading-relaxed">{selectedProduct.description}</p>
+
+                <div className="mt-3 flex items-baseline gap-2">
+                  <span className="text-base font-extrabold text-slate-950">
+                    {formatCurrency(getPromoPrice(selectedProduct), activeCurrency)}
+                  </span>
+                  {selectedProduct.promotion_discount > 0 && (
+                    <span className="text-[10px] text-slate-400 line-through">
+                      {formatCurrency(selectedProduct.price, activeCurrency)}
+                    </span>
+                  )}
+                  <span className="text-[10px] text-slate-400 font-medium ml-auto">Stock: {selectedProduct.stock}</span>
+                </div>
+              </div>
+
+              {/* Verified reviews & star selection list */}
+              <div className="border-t border-gray-100 pt-4 flex-1 flex flex-col min-h-[150px] max-h-[200px] overflow-y-auto space-y-2">
+                <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Opiniones de Clientes ({reviews.length})</p>
+                
+                {reviews.length === 0 ? (
+                  <div className="text-center py-4 text-slate-400 text-xs my-auto">
+                    <p>No hay valoraciones aún.</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">¡Sé el primero en dar tu opinión!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {reviews.map(rev => (
+                      <div key={rev.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100/60 text-xs">
+                        <div className="flex items-center justify-between font-bold text-[10px] text-slate-700">
+                          <span>{rev.customer_name}</span>
+                          <div className="flex items-center gap-0.5 text-amber-400 animate-fade-in">
+                            {Array.from({ length: 5 }).map((_, i) => (
+                              <Star 
+                                key={i} 
+                                className={`w-3 h-3 fill-current ${i < rev.rating ? 'text-amber-400' : 'text-slate-200'}`} 
+                              />
+                            ))}
+                          </div>
+                        </div>
+                        <p className="text-slate-600 mt-1 pl-0.5 leading-relaxed font-medium">{rev.comment}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Form to leave a review */}
+              <form onSubmit={handleCreateReview} className="border-t border-gray-100 pt-4 space-y-2">
+                <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Dejar tu Valoración</p>
+                {reviewError && (
+                  <div className="p-2.5 bg-red-50 text-red-700 border border-red-100 rounded-lg text-[10px] font-bold">
+                    {reviewError}
+                  </div>
+                )}
+                
+                <div className="grid grid-cols-2 gap-2">
+                  <input 
+                    type="text"
+                    required
+                    placeholder="Tu Nombre (Ej: Pedro)"
+                    value={newReviewName}
+                    onChange={(e) => setNewReviewName(e.target.value)}
+                    className="text-xs p-2 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none"
+                  />
+                  
+                  {/* Stars input */}
+                  <div className="flex items-center gap-1 justify-center bg-slate-50 border border-gray-200 rounded-lg px-2">
+                    <span className="text-[10px] font-bold text-slate-400 mr-1 uppercase">ESTRELLAS:</span>
+                    <select
+                      value={newReviewRating}
+                      onChange={(e) => setNewReviewRating(Number(e.target.value))}
+                      className="text-xs font-bold text-amber-500 bg-transparent border-none outline-none focus:ring-0 cursor-pointer"
+                    >
+                      <option value="5">⭐⭐⭐⭐⭐ (5)</option>
+                      <option value="4">⭐⭐⭐⭐ (4)</option>
+                      <option value="3">⭐⭐⭐ (3)</option>
+                      <option value="2">⭐⭐ (2)</option>
+                      <option value="1">⭐ (1)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <input 
+                  type="text"
+                  required
+                  placeholder="Escribe tu reseña breve..."
+                  value={newReviewComment}
+                  onChange={(e) => setNewReviewComment(e.target.value)}
+                  className="w-full text-xs p-2 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none"
+                />
+
+                <div className="flex justify-between items-center pt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedProduct) addToCart(selectedProduct);
+                    }}
+                    className="text-[10px] font-bold text-teal-600 hover:text-teal-700 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <ShoppingBag className="w-3.5 h-3.5" />
+                    <span>Añadir al carrito</span>
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={isSubmittingReview}
+                    className="text-[10px] font-bold bg-slate-900 hover:bg-slate-800 text-white px-4 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer disabled:bg-slate-300 disabled:cursor-not-allowed"
+                  >
+                    {isSubmittingReview ? (
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <span>Opinar</span>
+                    )}
+                  </button>
+                </div>
+              </form>
+
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Footer minimal info */}
-      <footer className="bg-slate-900 border-t border-slate-800 text-slate-400 py-6 px-6 mt-16 text-xs text-center font-medium">
+      <footer className="bg-slate-900 border-t border-slate-800 text-slate-400 py-8 px-6 mt-16 text-xs text-center font-medium">
         <p>© 2026 {settings?.shop_name || 'Boutique Minimal'}. Todos los derechos reservados.</p>
-        <p className="text-[10px] text-slate-500 mt-1">
-          Motorizado por React, Tailwind CSS y Supabase Realtime elástico para despacho instantáneo.
-        </p>
+        <div className="mt-2 text-[10px] text-slate-500 max-w-md mx-auto space-y-1">
+          <p>⌚ Horario de Atención: <strong>{settings?.business_hours || 'Lun a Sáb'}</strong></p>
+          <p>📍 Dirección de la Tienda: {settings?.address || 'Sin dirección declarada'}</p>
+          <p className="text-slate-600 mt-2">
+            Sistema Seguro SHA-256 elástico para despacho instantáneo virtual.
+          </p>
+        </div>
       </footer>
     </div>
   );

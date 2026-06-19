@@ -26,7 +26,7 @@ export function generateInvoiceNumber(): string {
  * Formats a numeric price into a neat readable currency format.
  */
 export function formatCurrency(amount: number, symbol: string = '$'): string {
-  return `${symbol}${amount.toLocaleString('es-ES', {
+  return `${symbol} ${amount.toLocaleString('es-ES', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;

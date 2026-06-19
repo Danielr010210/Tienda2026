@@ -15,6 +15,7 @@ export interface Product {
   stock: number;
   is_visible: boolean; // Control visibility without deleting
   promotion_discount: number; // Percentage discount (e.g., 15 for 15% off)
+  currency?: string; // Specific product currency override
   created_at?: string;
 }
 
@@ -27,6 +28,8 @@ export interface Worker {
   is_active: boolean;
   failed_attempts: number;
   locked_until?: string | null;
+  must_reset_password?: boolean; // New: force password update on first login
+  permissions?: string[]; // New: list of allowed actions
 }
 
 export interface OrderItem {
@@ -80,4 +83,41 @@ export interface ShopSettings {
   business_hours: string;
   address: string;
   currency: string;
+  about_visible?: boolean;
+  about_text?: string;
+  smart_search_text?: string;
+  shop_logo_url?: string;
+}
+
+export interface ProductCategory {
+  id: string;
+  name: string;
+  created_at?: string;
+}
+
+export interface ProductReview {
+  id: string;
+  product_id: string;
+  rating: number; // 1-5 stars
+  reviewer_name: string;
+  comment: string;
+  created_at: string;
+}
+
+export interface SupportInquiry {
+  id: string;
+  customer_name: string;
+  customer_phone: string;
+  type: 'consulta' | 'queja' | 'problema';
+  message: string;
+  created_at: string;
+}
+
+export interface ActiveClient {
+  id: string;
+  name: string;
+  location: string;
+  active_since: string;
+  last_action: string;
+  cart_count: number;
 }
