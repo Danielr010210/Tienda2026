@@ -210,8 +210,9 @@ function setLocalStorageItem<T>(key: string, value: T): void {
 export class SupabaseService {
   // Configured URL and Key (populated with exact user parameters!)
   static getCredentials() {
-    const url = localStorage.getItem('supabase_url') || 'https://yczvjaciqhaxymsbeyty.supabase.co';
-    const key = localStorage.getItem('supabase_key') || 'sb_publishable_fYQjTggl4-eoDyc-s3jPdQ_MG5q4UlW';
+    const metaEnv = (import.meta as any).env;
+    const url = (metaEnv?.VITE_SUPABASE_URL as string) || localStorage.getItem('supabase_url') || 'https://yczvjaciqhaxymsbeyty.supabase.co';
+    const key = (metaEnv?.VITE_SUPABASE_ANON_KEY as string) || localStorage.getItem('supabase_key') || 'sb_publishable_fYQjTggl4-eoDyc-s3jPdQ_MG5q4UlW';
     const mode = localStorage.getItem('supabase_mode') || 'real';
     return { url, key, mode };
   }
