@@ -437,7 +437,15 @@ export class SupabaseService {
 
           if (isIdUuid) {
             rowData.id = dbWorker.id;
-            await client.from('workers').upsert(rowData);
+            let { error } = await client.from('workers').upsert(rowData);
+            if (error && (error.code === '42703' || error.message?.includes('column'))) {
+              // Retry without new columns
+              delete rowData.must_reset_password;
+              delete rowData.permissions;
+              const retryRes = await client.from('workers').upsert(rowData);
+              error = retryRes.error;
+            }
+            if (error) throw error;
           } else {
             // lookup by username
             const { data: existing } = await client
@@ -450,17 +458,38 @@ export class SupabaseService {
               if (!rowData.password_sha256) {
                 rowData.password_sha256 = existing.password_sha256;
               }
-              await client.from('workers').update(rowData).eq('id', existing.id);
+              let { error } = await client.from('workers').update(rowData).eq('id', existing.id);
+              if (error && (error.code === '42703' || error.message?.includes('column'))) {
+                delete rowData.must_reset_password;
+                delete rowData.permissions;
+                const retryRes = await client.from('workers').update(rowData).eq('id', existing.id);
+                error = retryRes.error;
+              }
+              if (error) throw error;
               dbWorker.id = existing.id;
             } else {
               if (!rowData.password_sha256) {
                 rowData.password_sha256 = await hashSHA256('Colaborador123!');
               }
-              const { data: inserted } = await client
+              let { data: inserted, error } = await client
                 .from('workers')
                 .insert(rowData)
                 .select('id')
-                .single();
+                .maybeSingle();
+
+              if (error && (error.code === '42703' || error.message?.includes('column'))) {
+                delete rowData.must_reset_password;
+                delete rowData.permissions;
+                const retryRes = await client
+                  .from('workers')
+                  .insert(rowData)
+                  .select('id')
+                  .maybeSingle();
+                inserted = retryRes.data;
+                error = retryRes.error;
+              }
+              if (error) throw error;
+
               if (inserted) {
                 dbWorker.id = inserted.id;
               }
@@ -468,6 +497,7 @@ export class SupabaseService {
           }
         } catch (e) {
           console.error('Supabase worker sync exception:', e);
+          throw e;
         }
       }
     }

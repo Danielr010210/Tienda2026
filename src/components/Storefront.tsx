@@ -24,9 +24,6 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
   const [settings, setSettings] = useState<ShopSettings | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Active Display Currency (User can toggle CUP, USD, EUR, MLC at any time)
-  const [activeCurrency, setActiveCurrency] = useState('CUP');
-
   // Search & Navigation
   const [selectedCategory, setSelectedCategory] = useState<string>('General');
   const [searchQuery, setSearchQuery] = useState('');
@@ -104,9 +101,6 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
         const rawSettings = await SupabaseService.getSettings();
         setProducts(rawProds);
         setSettings(rawSettings);
-        if (rawSettings?.currency) {
-          setActiveCurrency(rawSettings.currency);
-        }
       } catch (e) {
         console.error('Error fetching storefront data:', e);
       } finally {
@@ -230,7 +224,8 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
         product_id: item.product.id,
         product_name: item.product.name,
         quantity: item.quantity,
-        price_sold: getPromoPrice(item.product)
+        price_sold: getPromoPrice(item.product),
+        currency: item.product.currency || 'CUP'
       }));
 
       const finalInvoice = generateInvoiceNumber();
@@ -273,12 +268,18 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
     if (!successOrder || !settings) return;
 
     const contactPhone = settings.whatsapp_number || '34600000000';
-    const currency = activeCurrency;
 
     let orderLines = '';
+    const orderTotalsByCurrency: Record<string, number> = {};
     successOrder.items.forEach(item => {
-      orderLines += `• ${item.quantity}x ${item.product_name} - (${currency} ${item.price_sold})\n`;
+      const itemCurrency = item.currency || 'CUP';
+      orderLines += `• ${item.quantity}x ${item.product_name} - (${itemCurrency} ${item.price_sold})\n`;
+      orderTotalsByCurrency[itemCurrency] = (orderTotalsByCurrency[itemCurrency] || 0) + (item.price_sold * item.quantity);
     });
+
+    const totalToPayString = Object.entries(orderTotalsByCurrency)
+      .map(([curr, total]) => `${curr} ${total.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
+      .join(' + ');
 
     const isMockModeLabel = SupabaseService.getCredentials().mode === 'mock' ? ' [MODO DEMO]' : '';
 
@@ -293,7 +294,7 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
       `*Productos:* \n` +
       orderLines +
       `----------------------------------------\n` +
-      `*Total a pagar: ${formatCurrency(successOrder.total, currency)}*\n\n` +
+      `*Total a pagar: ${totalToPayString}*\n\n` +
       `Por favor confirme si mi pedido está en proceso de despacho. ¡Muchas gracias!`;
 
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${contactPhone}&text=${encodeURIComponent(messageText)}`;
@@ -413,21 +414,6 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
 
         {/* Quick actions */}
         <div id="nav-actions" className="flex items-center gap-3 flex-wrap">
-          {/* Currency Dropdown Selector */}
-          <div className="flex items-center gap-1 bg-slate-50 border border-gray-200/80 rounded-lg px-2 py-1 select-none">
-            <span className="text-[9px] font-bold text-slate-400 tracking-wider">DIVISA:</span>
-            <select
-              value={activeCurrency}
-              onChange={(e) => setActiveCurrency(e.target.value)}
-              className="text-xs font-bold text-slate-700 bg-transparent border-none outline-none focus:ring-0 cursor-pointer py-0.5"
-            >
-              <option value="CUP">CUP ($)</option>
-              <option value="USD">USD ($)</option>
-              <option value="EUR">EUR (€)</option>
-              <option value="MLC">MLC ($)</option>
-            </select>
-          </div>
-
           {/* Quick Support Ticket Button */}
           <button 
             onClick={() => {
@@ -584,7 +570,7 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
           <div id="product-grid" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredProducts.map(product => {
               const discountedPrice = getPromoPrice(product);
-              const currencySymbol = activeCurrency;
+              const currencySymbol = product.currency || 'CUP';
               const isLowStock = product.stock > 0 && product.stock <= 5;
               const isOutOfStock = product.stock <= 0;
 
@@ -735,7 +721,7 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
               ) : (
                 cart.map(item => {
                   const finalPrice = getPromoPrice(item.product);
-                  const currencySymbol = settings?.currency || '€';
+                  const currencySymbol = item.product.currency || 'CUP';
                   return (
                     <div 
                       key={item.product.id}
@@ -792,8 +778,20 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
                   </div>
                   <div className="flex justify-between items-baseline pt-2 border-t border-dashed border-gray-200">
                     <span className="text-sm font-bold text-slate-900">Monto Total:</span>
-                    <span className="text-xl font-extrabold text-slate-950">
-                      {formatCurrency(cartTotal, settings?.currency || '€')}
+                    <span className="text-right flex flex-col items-end gap-1">
+                      {(() => {
+                        const cartTotalsByCurrency = cart.reduce((acc, item) => {
+                          const currency = item.product.currency || 'CUP';
+                          const finalPrice = getPromoPrice(item.product);
+                          acc[currency] = (acc[currency] || 0) + finalPrice * item.quantity;
+                          return acc;
+                        }, {} as Record<string, number>);
+                        return Object.entries(cartTotalsByCurrency).map(([curr, total]) => (
+                          <div key={curr} className="text-base font-extrabold text-slate-950">
+                            {formatCurrency(Number(total), curr)}
+                          </div>
+                        ));
+                      })()}
                     </span>
                   </div>
                 </div>
@@ -954,7 +952,21 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
                   <span className="text-slate-500 font-medium">Monto final de compra:</span>
                   <p className="text-[10px] text-slate-400">Impuestos y empaque incluidos</p>
                 </div>
-                <strong className="text-base text-slate-900 font-extrabold">{formatCurrency(cartTotal, activeCurrency)}</strong>
+                <div className="text-right">
+                  {(() => {
+                    const cartTotalsByCurrency = cart.reduce((acc, item) => {
+                      const currency = item.product.currency || 'CUP';
+                      const finalPrice = getPromoPrice(item.product);
+                      acc[currency] = (acc[currency] || 0) + finalPrice * item.quantity;
+                      return acc;
+                    }, {} as Record<string, number>);
+                    return Object.entries(cartTotalsByCurrency).map(([curr, total]) => (
+                      <div key={curr} className="text-base text-slate-900 font-extrabold">
+                        {formatCurrency(Number(total), curr)}
+                      </div>
+                    ));
+                  })()}
+                </div>
               </div>
 
               {/* Dialog buttons */}
@@ -1254,11 +1266,11 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
 
                 <div className="mt-3 flex items-baseline gap-2">
                   <span className="text-base font-extrabold text-slate-950">
-                    {formatCurrency(getPromoPrice(selectedProduct), activeCurrency)}
+                    {formatCurrency(getPromoPrice(selectedProduct), selectedProduct.currency || 'CUP')}
                   </span>
                   {selectedProduct.promotion_discount > 0 && (
                     <span className="text-[10px] text-slate-400 line-through">
-                      {formatCurrency(selectedProduct.price, activeCurrency)}
+                      {formatCurrency(selectedProduct.price, selectedProduct.currency || 'CUP')}
                     </span>
                   )}
                   <span className="text-[10px] text-slate-400 font-medium ml-auto">Stock: {selectedProduct.stock}</span>

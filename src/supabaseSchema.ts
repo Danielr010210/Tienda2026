@@ -57,8 +57,14 @@ create table if not exists workers (
   is_active boolean not null default true,
   failed_attempts integer not null default 0,
   locked_until timestamp with time zone,
+  must_reset_password boolean not null default true,
+  permissions text[] default '{}'::text[],
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
+
+-- Asegurar compatibilidad para bases de datos ya creadas previamente
+alter table workers add column if not exists must_reset_password boolean not null default true;
+alter table workers add column if not exists permissions text[] default '{}'::text[];
 
 -- Insertar trabajadores por defecto si no existen:
 -- Admin: Admin123!

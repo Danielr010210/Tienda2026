@@ -271,7 +271,8 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       image_url: productForm.image_url,
       stock: Number(productForm.stock) || 0,
       is_visible: productForm.is_visible !== false,
-      promotion_discount: Number(productForm.promotion_discount) || 0
+      promotion_discount: Number(productForm.promotion_discount) || 0,
+      currency: productForm.currency || 'CUP'
     };
 
     try {
@@ -448,6 +449,16 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       await SupabaseService.saveWorker(payload, workerForm.plainPassword);
       setIsWorkerModalOpen(false);
       setEditingWorker(null);
+      
+      const loadedWorkers = await SupabaseService.getWorkers();
+      setWorkers(loadedWorkers);
+      if (currentUser) {
+        const updatedMe = loadedWorkers.find(w => w.username.toLowerCase() === currentUser.username.toLowerCase());
+        if (updatedMe) {
+          setCurrentUser(updatedMe);
+        }
+      }
+      
       await loadDatabaseData();
     } catch (err) {
       alert('Error guardando usuario. Posiblemente el nombre de usuario ya existe.');
@@ -1008,8 +1019,17 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                               </div>
                               <div className="flex items-center gap-1.5 text-xs">
                                 <span className="text-slate-500 font-semibold">Total del Ticket:</span>
-                                <strong className="text-sm font-extrabold text-slate-900">
-                                  {formatCurrency(order.total, settings?.currency || '€')}
+                                <strong className="text-sm font-extrabold text-slate-900 flex flex-col items-end leading-tight">
+                                  {(() => {
+                                    const orderTotalsByCurrency = order.items.reduce((acc, it) => {
+                                      const currency = it.currency || 'CUP';
+                                      acc[currency] = (acc[currency] || 0) + (it.price_sold * it.quantity);
+                                      return acc;
+                                    }, {} as Record<string, number>);
+                                    return Object.entries(orderTotalsByCurrency).map(([curr, total]) => (
+                                      <div key={curr}>{formatCurrency(Number(total), curr)}</div>
+                                    ));
+                                  })()}
                                 </strong>
                               </div>
                             </div>
@@ -1051,8 +1071,8 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                                           <tr key={idx} className="hover:bg-slate-50/50">
                                             <td className="px-4 py-2 font-semibold text-slate-800">{it.product_name}</td>
                                             <td className="px-4 py-2 text-right font-bold text-slate-600">{it.quantity}</td>
-                                            <td className="px-4 py-2 text-right font-medium text-slate-500">{formatCurrency(it.price_sold, settings?.currency || '€')}</td>
-                                            <td className="px-4 py-2 text-right font-black text-slate-800">{formatCurrency(it.price_sold * it.quantity, settings?.currency || '€')}</td>
+                                            <td className="px-4 py-2 text-right font-medium text-slate-500">{formatCurrency(it.price_sold, it.currency || 'CUP')}</td>
+                                            <td className="px-4 py-2 text-right font-black text-slate-800">{formatCurrency(it.price_sold * it.quantity, it.currency || 'CUP')}</td>
                                           </tr>
                                         ))}
                                       </tbody>
@@ -1132,7 +1152,18 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                                   <td className="px-6 py-4 font-bold text-slate-900">{order.invoice_number}</td>
                                   <td className="px-6 py-4 text-slate-500">{new Date(order.created_at).toLocaleString('es-ES')}</td>
                                   <td className="px-6 py-4 font-semibold text-slate-700">{order.customer_name} {order.customer_lastname}</td>
-                                  <td className="px-6 py-4 font-black">{formatCurrency(order.total, settings?.currency || '€')}</td>
+                                  <td className="px-6 py-4 font-black">{(() => {
+                                    const orderTotalsByCurrency = order.items.reduce((acc, it) => {
+                                      const currency = it.currency || 'CUP';
+                                      acc[currency] = (acc[currency] || 0) + (it.price_sold * it.quantity);
+                                      return acc;
+                                    }, {} as Record<string, number>);
+                                    return Object.entries(orderTotalsByCurrency).map(([curr, total]) => (
+                                      <div key={curr} className="font-black leading-tight">
+                                        {formatCurrency(Number(total), curr)}
+                                      </div>
+                                    ));
+                                  })()}</td>
                                   <td className="px-6 py-4">
                                     <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
                                       order.status === 'confirmado' 
@@ -1230,7 +1261,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {products.map(prod => {
-                          const currencySymbol = settings?.currency || '€';
+                          const currencySymbol = prod.currency || 'CUP';
                           const discounted = prod.price * (1 - prod.promotion_discount / 100);
                           const isLowST = prod.stock <= 5;
 
