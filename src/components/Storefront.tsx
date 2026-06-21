@@ -4,11 +4,11 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Product, Order, ShopSettings, ProductReview, SupportInquiry } from '../types';
+import { Product, Order, ShopSettings, ProductReview, SupportInquiry, Coupon } from '../types';
 import { SupabaseService } from '../supabaseService';
 import { formatCurrency, generateInvoiceNumber } from '../utils';
 import { 
-  ShoppingBag, Search, Tag, AlertTriangle, CheckCircle, 
+  ShoppingBag, Search, Tag, AlertTriangle, CheckCircle, SlidersHorizontal, 
   Send, Wifi, WifiOff, RefreshCw, Smartphone, MapPin, Sparkles, X, ChevronRight, CornerDownRight,
   Star, Info, Eye, HelpCircle, Database
 } from 'lucide-react';
@@ -54,6 +54,20 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   const [reference, setReference] = useState('');
   const [nickname, setNickname] = useState('');
   const [formErrors, setFormErrors] = useState<string | null>(null);
+
+  // Coupon States
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [couponSuccessMessage, setCouponSuccessMessage] = useState<string | null>(null);
+
+  // Advanced Filters States
+  const [minPrice, setMinPrice] = useState<number | ''>('');
+  const [maxPrice, setMaxPrice] = useState<number | ''>('');
+  const [onlyPromos, setOnlyPromos] = useState(false);
+  const [onlyInStock, setOnlyInStock] = useState(false);
+  const [sortBy, setSortBy] = useState<string>('default'); // 'default', 'price-asc', 'price-desc', 'name-asc', 'discount'
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   // Invoice / Success Popup
   const [successOrder, setSuccessOrder] = useState<Order | null>(null);
@@ -281,27 +295,33 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   }, [selectedProduct]);
 
   // Load categories directly from database, combined dynamically with active products to ensure zero data-loss
-  const categories: string[] = ['General', ...Array.from(new Set([
-    ...dbCategories.map(c => c.name),
-    ...products.filter(p => p.is_visible).map(p => p.category)
-  ]))] as string[];
+  // Filter: Keep only categories that have at least one visible product assigned to them
+  const activeProductCategories = new Set(
+    products.filter(p => p.is_visible).map(p => p.category.toLowerCase().trim())
+  );
 
-  // Filtering products
-  const filteredProducts = products.filter(p => {
-    // 1. Must be visible to customers
-    if (!p.is_visible) return false;
-    
-    // 2. Category match
-    const matchesCategory = selectedCategory === 'General' || p.category.toLowerCase() === selectedCategory.toLowerCase();
-
-    // 3. Search query match
-    const matchesSearch = 
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      p.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.category.toLowerCase().includes(searchQuery.toLowerCase());
-
-    return matchesCategory && matchesSearch;
+  const categoriesSet = new Set<string>();
+  
+  // Add database categories if they have at least one visible product assigned
+  dbCategories.forEach(c => {
+    if (c.name && activeProductCategories.has(c.name.toLowerCase().trim())) {
+      categoriesSet.add(c.name.trim());
+    }
   });
+
+  // Add any product categories that might wrap around the database categories (or not in db but assigned to visible products)
+  products.filter(p => p.is_visible).forEach(p => {
+    const normalized = p.category ? p.category.trim() : '';
+    if (normalized) {
+      // Find case-insensitive match
+      const exists = Array.from(categoriesSet).some(existing => existing.toLowerCase().trim() === normalized.toLowerCase());
+      if (!exists) {
+        categoriesSet.add(p.category.trim());
+      }
+    }
+  });
+
+  const categories: string[] = ['General', ...Array.from(categoriesSet)] as string[];
 
   // Helper inside the store to compute price with discount applied
   const getPromoPrice = (product: Product): number => {
@@ -309,6 +329,144 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
       return product.price * (1 - product.promotion_discount / 100);
     }
     return product.price;
+  };
+
+  // Advanced Filtering and Sorting of products
+  const filteredProducts = products
+    .filter(p => {
+      // 1. Must be visible to customers
+      if (!p.is_visible) return false;
+      
+      // 2. Category match
+      const matchesCategory = selectedCategory === 'General' || p.category.toLowerCase() === selectedCategory.toLowerCase();
+
+      // 3. Search query match
+      const matchesSearch = 
+        p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        p.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.category.toLowerCase().includes(searchQuery.toLowerCase());
+
+      // 4. Min Price check (on getPromoPrice)
+      const finalPrice = getPromoPrice(p);
+      if (minPrice !== '' && finalPrice < minPrice) return false;
+
+      // 5. Max Price check
+      if (maxPrice !== '' && finalPrice > maxPrice) return false;
+
+      // 6. Only promo check
+      if (onlyPromos && p.promotion_discount <= 0) return false;
+
+      // 7. Only in stock check
+      if (onlyInStock && p.stock <= 0) return false;
+
+      return matchesCategory && matchesSearch;
+    })
+    .sort((a, b) => {
+      const priceA = getPromoPrice(a);
+      const priceB = getPromoPrice(b);
+      
+      if (sortBy === 'price-asc') return priceA - priceB;
+      if (sortBy === 'price-desc') return priceB - priceA;
+      if (sortBy === 'name-asc') return a.name.localeCompare(b.name);
+      if (sortBy === 'discount') return b.promotion_discount - a.promotion_discount;
+      return 0; // default (which is already sorted by sequence)
+    });
+
+  // Coupon Action Handlers
+  const handleApplyCoupon = async () => {
+    setCouponError(null);
+    setCouponSuccessMessage(null);
+    if (!couponCode.trim()) {
+      setCouponError('Introduce un código de cupón.');
+      return;
+    }
+
+    try {
+      const couponsList = await SupabaseService.getCoupons();
+      const match = couponsList.find(c => c.code.toUpperCase().trim() === couponCode.toUpperCase().trim());
+
+      if (!match) {
+        setCouponError('El cupón no es válido o ha expirado.');
+        setAppliedCoupon(null);
+        return;
+      }
+
+      if (!match.is_active) {
+        setCouponError('Este cupón está desactivado.');
+        setAppliedCoupon(null);
+        return;
+      }
+
+      if (match.min_purchase_amount && cartTotal < match.min_purchase_amount) {
+        setCouponError(`Compra mínima requerida: ${formatCurrency(match.min_purchase_amount, settings?.currency || 'CUP')}`);
+        setAppliedCoupon(null);
+        return;
+      }
+
+      setAppliedCoupon(match);
+      const valText = match.discount_type === 'percent' ? `${match.discount_value}%` : formatCurrency(match.discount_value, settings?.currency || 'CUP');
+      setCouponSuccessMessage(`Cupón "${match.code}" aplicado: -${valText}`);
+    } catch (e) {
+      console.error('Error validation coupon code:', e);
+      setCouponError('Error de conexión al validar cupón.');
+    }
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponCode('');
+    setCouponSuccessMessage(null);
+    setCouponError(null);
+  };
+
+  // Helper to calculate discounted totals multi_currency
+  const getDiscountedTotals = () => {
+    const cartTotalsByCurrency = cart.reduce((acc, item) => {
+      const currency = item.product.currency || 'CUP';
+      const finalPrice = getPromoPrice(item.product);
+      acc[currency] = (acc[currency] || 0) + finalPrice * item.quantity;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const discountedTotals: Record<string, number> = {};
+    const discountDetails: Record<string, number> = {};
+
+    Object.entries(cartTotalsByCurrency).forEach(([curr, val]) => {
+      const total = Number(val);
+      let disc = 0;
+      if (appliedCoupon) {
+        if (appliedCoupon.discount_type === 'percent') {
+          disc = (total * appliedCoupon.discount_value) / 100;
+        } else if (appliedCoupon.discount_type === 'fixed' && curr === 'CUP') {
+          disc = Math.min(total, appliedCoupon.discount_value);
+        }
+      }
+      discountedTotals[curr] = Math.max(0, total - disc);
+      discountDetails[curr] = disc;
+    });
+
+    return { totals: cartTotalsByCurrency, discountedTotals, discountDetails };
+  };
+
+  // Smart Recommendations Engine
+  const getSmartRecommendations = (selectedProd: Product | null): Product[] => {
+    const cartIds = cart.map(item => item.product.id);
+    const excludeIds = new Set<string>();
+    if (selectedProd) excludeIds.add(selectedProd.id);
+    
+    let candidates = products.filter(p => p.is_visible && !excludeIds.has(p.id));
+
+    if (selectedProd) {
+      const sameCategory = candidates.filter(p => p.category === selectedProd.category);
+      if (sameCategory.length >= 3) return sameCategory.slice(0, 3);
+      const others = candidates.filter(p => p.category !== selectedProd.category);
+      return [...sameCategory, ...others].slice(0, 3);
+    } else {
+      const notInCartCandidates = candidates.filter(p => !cartIds.includes(p.id));
+      return notInCartCandidates
+        .sort((a, b) => b.promotion_discount - a.promotion_discount)
+        .slice(0, 3);
+    }
   };
 
   // Cart operations
@@ -384,6 +542,15 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
 
       const finalInvoice = generateInvoiceNumber();
 
+      let finalDiscountedOrderPrice = cartTotal;
+      if (appliedCoupon) {
+        if (appliedCoupon.discount_type === 'percent') {
+          finalDiscountedOrderPrice = Math.max(0, cartTotal * (1 - appliedCoupon.discount_value / 100));
+        } else if (appliedCoupon.discount_type === 'fixed') {
+          finalDiscountedOrderPrice = Math.max(0, cartTotal - appliedCoupon.discount_value);
+        }
+      }
+
       const newOrderPayload = {
         invoice_number: finalInvoice,
         customer_name: name.trim(),
@@ -393,7 +560,9 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
         customer_reference: reference.trim().length > 0 ? reference.trim() : undefined,
         customer_nickname: nickname.trim().length > 0 ? nickname.trim() : undefined,
         items: formattedItems,
-        total: cartTotal,
+        total: finalDiscountedOrderPrice,
+        coupon_applied: appliedCoupon ? appliedCoupon.code : undefined,
+        discount_amount: appliedCoupon ? (cartTotal - finalDiscountedOrderPrice) : 0
       };
 
       const finalCreatedOrder = await SupabaseService.createOrder(newOrderPayload);
@@ -401,6 +570,10 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
       setSuccessOrder(finalCreatedOrder);
       // Clean states
       setCart([]);
+      setAppliedCoupon(null);
+      setCouponCode('');
+      setCouponSuccessMessage(null);
+      setCouponError(null);
       setIsCheckoutOpen(false);
       setIsCartOpen(false);
       
@@ -437,6 +610,13 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
 
     const isMockModeLabel = SupabaseService.getCredentials().mode === 'mock' ? ' [MODO DEMO]' : '';
 
+    const couponApplied = (successOrder as any).coupon_applied;
+    const discountAmount = (successOrder as any).discount_amount;
+    let couponDecoration = '';
+    if (couponApplied && discountAmount > 0) {
+      couponDecoration = `*Cupón Aplicado:* ${couponApplied} (-CUP ${discountAmount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})\n----------------------------------------\n`;
+    }
+
     const messageText = `*PEDIDO NUEVO - ${successOrder.invoice_number}${isMockModeLabel}*\n` +
       `----------------------------------------\n` +
       `*Cliente:* ${successOrder.customer_name} ${successOrder.customer_lastname}\n` +
@@ -448,6 +628,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
       `*Productos:* \n` +
       orderLines +
       `----------------------------------------\n` +
+      couponDecoration +
       `*Total a pagar: ${totalToPayString}*\n\n` +
       `Por favor confirme si mi pedido está en proceso de despacho. ¡Muchas gracias!`;
 
@@ -717,26 +898,41 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
         <div className="mb-8 space-y-4">
           <div className="flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between">
             
-            {/* Search Input */}
-            <div className="relative flex-1 max-w-md">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-400">
-                <Search className="w-4 h-4" />
-              </span>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscador inteligente por nombre, categoría o detalle..."
-                className="w-full text-xs pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 text-slate-700 shadow-sm transition-all"
-              />
-              {searchQuery && (
-                <button 
-                  onClick={() => setSearchQuery('')}
-                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
+            {/* Search Input and Advanced Toggle */}
+            <div className="flex gap-2 flex-1 max-w-md">
+              <div className="relative flex-1">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-400">
+                  <Search className="w-4 h-4" />
+                </span>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Buscador inteligente por nombre, categoría o detalle..."
+                  className="w-full text-xs pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 text-slate-700 shadow-sm transition-all"
+                />
+                {searchQuery && (
+                  <button 
+                    onClick={() => setSearchQuery('')}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                className={`px-3 py-2.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                  showAdvancedFilters 
+                    ? 'bg-teal-50 text-teal-800 border-teal-200 shadow-inner' 
+                    : 'bg-white text-slate-600 border-gray-200 hover:bg-slate-50'
+                }`}
+                title="Filtros avanzados"
+              >
+                <SlidersHorizontal className="w-4 h-4 text-teal-650" />
+                <span className="hidden sm:inline">Filtros</span>
+              </button>
             </div>
 
             {/* Total count of matches indicator */}
@@ -744,6 +940,91 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
               Mostrando <strong className="text-slate-700">{filteredProducts.length}</strong> de <strong className="text-slate-700">{products.filter(p => p.is_visible).length}</strong> productos
             </div>
           </div>
+
+          {/* Advanced Filters Panel */}
+          {showAdvancedFilters && (
+            <div className="bg-[#FAFBFB] p-4.5 rounded-2xl border border-gray-150 shadow-inner grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 animate-scale-up text-xs">
+              
+              {/* Price Range */}
+              <div className="space-y-1.5 animate-fade-in">
+                <span className="block font-bold text-slate-700 uppercase tracking-wide text-[10px]">Rango de Precio ({settings?.currency || 'CUP'})</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    placeholder="Mín"
+                    value={minPrice}
+                    onChange={(e) => setMinPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="w-full bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-teal-500 text-xs text-slate-700"
+                  />
+                  <span className="text-slate-400">-</span>
+                  <input
+                    type="number"
+                    placeholder="Máx"
+                    value={maxPrice}
+                    onChange={(e) => setMaxPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="w-full bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-teal-500 text-xs text-slate-700"
+                  />
+                </div>
+              </div>
+
+              {/* Sort Order dropdown */}
+              <div className="space-y-1.5 animate-fade-in">
+                <span className="block font-bold text-slate-700 uppercase tracking-wide text-[10px]">Ordenar por</span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="w-full bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-teal-500 text-xs text-slate-700 cursor-pointer font-medium"
+                >
+                  <option value="default">Por Defecto</option>
+                  <option value="price-asc">Precio: Menor a Mayor</option>
+                  <option value="price-desc">Precio: Mayor a Menor</option>
+                  <option value="name-asc">Nombre (A-Z)</option>
+                  <option value="discount">Mayor Descuento</option>
+                </select>
+              </div>
+
+              {/* Checkboxes parameters */}
+              <div className="flex flex-col gap-2.5 justify-center pt-2 sm:pt-0">
+                <label className="flex items-center gap-2 font-semibold text-slate-600 cursor-pointer hover:text-slate-900 select-none text-[11px]">
+                  <input
+                    type="checkbox"
+                    checked={onlyPromos}
+                    onChange={(e) => setOnlyPromos(e.target.checked)}
+                    className="rounded text-teal-650 focus:ring-teal-500 w-4 h-4 border-gray-300 cursor-pointer"
+                  />
+                  <span>Sólo ofertas y descuentos</span>
+                </label>
+                <label className="flex items-center gap-2 font-semibold text-slate-600 cursor-pointer hover:text-slate-900 select-none text-[11px]">
+                  <input
+                    type="checkbox"
+                    checked={onlyInStock}
+                    onChange={(e) => setOnlyInStock(e.target.checked)}
+                    className="rounded text-teal-650 focus:ring-teal-500 w-4 h-4 border-gray-300 cursor-pointer"
+                  />
+                  <span>Sólo productos en stock</span>
+                </label>
+              </div>
+
+              {/* Reset Actions button */}
+              <div className="flex items-end justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMinPrice('');
+                    setMaxPrice('');
+                    setOnlyPromos(false);
+                    setOnlyInStock(false);
+                    setSortBy('default');
+                  }}
+                  className="w-full sm:w-auto px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Restablecer Filtros</span>
+                </button>
+              </div>
+
+            </div>
+          )}
 
           {/* Categoría tabs selector */}
           <div id="category-tabs" className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
@@ -996,7 +1277,54 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
 
             {/* Calculate and submit */}
             {cart.length > 0 && (
-              <div className="p-5 border-t border-gray-100 bg-slate-50/60">
+              <div className="p-5 border-t border-gray-100 bg-slate-50/60 shadow-inner">
+                
+                {/* Cupones de Descuento */}
+                <div className="border-b border-gray-250 pb-3 mb-3 bg-white/40 p-2.5 rounded-xl">
+                  <span className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 flex items-center gap-1">
+                    <Tag className="w-3.5 h-3.5 text-teal-650" />
+                    <span>¿Tienes un código de descuento?</span>
+                  </span>
+                  {!appliedCoupon ? (
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="Ej: VERANO10"
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value)}
+                        className="flex-1 bg-white border border-gray-250 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-500 uppercase font-mono font-bold"
+                      />
+                      <button
+                        onClick={handleApplyCoupon}
+                        className="bg-slate-900 text-teal-300 font-bold px-3 py-1 text-[11px] rounded-lg hover:bg-slate-800 transition-colors active:scale-95 cursor-pointer shrink-0"
+                      >
+                        Aplicar
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between bg-teal-50 border border-teal-150 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-teal-850">
+                      <div className="flex items-center gap-1">
+                        <span className="font-extrabold tracking-wide uppercase font-mono bg-teal-100 px-1.5 py-0.5 rounded text-[10px]">{appliedCoupon.code}</span>
+                        <span className="text-slate-650">-{appliedCoupon.discount_type === 'percent' ? `${appliedCoupon.discount_value}%` : `${appliedCoupon.discount_value} CUP`}</span>
+                      </div>
+                      <button
+                        onClick={handleRemoveCoupon}
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 font-bold px-1.5 py-0.5 rounded transition-all cursor-pointer text-[10px]"
+                        title="Quitar cupón"
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  )}
+
+                  {couponError && (
+                    <p className="text-[10px] text-red-500 font-bold mt-1.5 animate-pulse">❌ {couponError}</p>
+                  )}
+                  {couponSuccessMessage && (
+                    <p className="text-[10px] text-teal-750 font-black mt-1.5 bg-teal-50/50 p-1 rounded-md border border-teal-100">✅ {couponSuccessMessage}</p>
+                  )}
+                </div>
+
                 <div className="space-y-2 mb-4">
                   <div className="flex justify-between text-xs text-slate-500">
                     <span>Cantidad de Artículos:</span>
@@ -1006,17 +1334,32 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
                     <span className="text-sm font-bold text-slate-900">Monto Total:</span>
                     <span className="text-right flex flex-col items-end gap-1">
                       {(() => {
-                        const cartTotalsByCurrency = cart.reduce((acc, item) => {
-                          const currency = item.product.currency || 'CUP';
-                          const finalPrice = getPromoPrice(item.product);
-                          acc[currency] = (acc[currency] || 0) + finalPrice * item.quantity;
-                          return acc;
-                        }, {} as Record<string, number>);
-                        return Object.entries(cartTotalsByCurrency).map(([curr, total]) => (
-                          <div key={curr} className="text-base font-extrabold text-slate-950">
-                            {formatCurrency(Number(total), curr)}
-                          </div>
-                        ));
+                        const { totals, discountedTotals, discountDetails } = getDiscountedTotals();
+                        return Object.entries(totals).map(([curr, total]) => {
+                          const disc = discountDetails[curr] || 0;
+                          const discTotal = discountedTotals[curr] || 0;
+                          return (
+                            <div key={curr} className="text-right">
+                              {disc > 0 ? (
+                                <div className="space-y-0.5">
+                                  <div className="text-[10px] text-slate-400 line-through">
+                                    {formatCurrency(Number(total), curr)}
+                                  </div>
+                                  <div className="text-[10px] text-teal-600 font-bold">
+                                    Ahorro: -{formatCurrency(disc, curr)}
+                                  </div>
+                                  <div className="text-base font-extrabold text-slate-950">
+                                    {formatCurrency(discTotal, curr)}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-base font-extrabold text-slate-950">
+                                  {formatCurrency(Number(total), curr)}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        });
                       })()}
                     </span>
                   </div>
@@ -1175,22 +1518,31 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
               {/* Total review */}
               <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between text-xs">
                 <div>
-                  <span className="text-slate-500 font-medium">Monto final de compra:</span>
-                  <p className="text-[10px] text-slate-400">Impuestos y empaque incluidos</p>
+                  <span className="text-slate-500 font-medium font-sans">Monto final de compra:</span>
+                  <p className="text-[10px] text-slate-400">Impuestos y empaque incluidos {appliedCoupon ? `(Cupón ${appliedCoupon.code} aplicado)` : ''}</p>
                 </div>
                 <div className="text-right">
                   {(() => {
-                    const cartTotalsByCurrency = cart.reduce((acc, item) => {
-                      const currency = item.product.currency || 'CUP';
-                      const finalPrice = getPromoPrice(item.product);
-                      acc[currency] = (acc[currency] || 0) + finalPrice * item.quantity;
-                      return acc;
-                    }, {} as Record<string, number>);
-                    return Object.entries(cartTotalsByCurrency).map(([curr, total]) => (
-                      <div key={curr} className="text-base text-slate-900 font-extrabold">
-                        {formatCurrency(Number(total), curr)}
-                      </div>
-                    ));
+                    const { totals, discountedTotals, discountDetails } = getDiscountedTotals();
+                    return Object.entries(totals).map(([curr, total]) => {
+                      const disc = discountDetails[curr] || 0;
+                      const discTotal = discountedTotals[curr] || 0;
+                      return (
+                        <div key={curr} className="text-right font-black">
+                          {disc > 0 ? (
+                            <div className="space-y-0.5">
+                              <span className="text-[10px] text-slate-400 line-through mr-1.5">{formatCurrency(Number(total), curr)}</span>
+                              <span className="text-[10px] text-teal-650 font-bold mr-1.5">(-{formatCurrency(disc, curr)})</span>
+                              <span className="text-base text-slate-950 font-extrabold">{formatCurrency(discTotal, curr)}</span>
+                            </div>
+                          ) : (
+                            <div className="text-base text-slate-900 font-extrabold">
+                              {formatCurrency(Number(total), curr)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    });
                   })()}
                 </div>
               </div>
@@ -1530,207 +1882,252 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
       {/* Product Details & Ratings Modal overlay */}
       {selectedProduct && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[90vh] md:max-h-[85vh] animate-scale-up">
+          <div className="bg-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] md:max-h-[85vh] animate-scale-up">
             
-            {/* Product Image Panel */}
-            <div className="w-full md:w-1/2 bg-slate-50 relative flex items-center justify-center border-r border-gray-100 min-h-[220px] cursor-zoom-in">
-              <img 
-                src={selectedProduct.image_url || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=600'} 
-                alt={selectedProduct.name}
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover max-h-[250px] md:max-h-full"
-                onClick={() => setExpandedImage(selectedProduct.image_url || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=600')}
-              />
-              <span className="absolute top-3 left-3 text-[9px] font-bold bg-slate-900 text-white uppercase px-2 py-0.5 rounded shadow-sm">
-                {selectedProduct.category}
-              </span>
-            </div>
+            {/* Top row split layout containing image and reviews */}
+            <div className="flex flex-col md:flex-row flex-1 overflow-y-auto">
+              {/* Product Image Panel */}
+              <div className="w-full md:w-1/2 bg-slate-50 relative flex items-center justify-center border-r border-gray-100 min-h-[220px] cursor-zoom-in">
+                <img 
+                  src={selectedProduct.image_url || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=600'} 
+                  alt={selectedProduct.name}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover max-h-[250px] md:max-h-full"
+                  onClick={() => setExpandedImage(selectedProduct.image_url || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=600')}
+                />
+                <span className="absolute top-3 left-3 text-[9px] font-bold bg-slate-900 text-white uppercase px-2 py-0.5 rounded shadow-sm">
+                  {selectedProduct.category}
+                </span>
+              </div>
 
-            {/* Content & Review Form Panel */}
-            <div className="w-full md:w-1/2 flex flex-col justify-between overflow-y-auto p-6 space-y-4">
-              
-              {/* Header Info */}
-              <div>
-                <div className="flex items-start justify-between">
-                  <h3 className="font-extrabold text-slate-900 text-base leading-tight">{selectedProduct.name}</h3>
-                  <button 
-                    onClick={() => setSelectedProduct(null)}
-                    className="p-1 text-slate-400 hover:text-slate-800 rounded-lg cursor-pointer shrink-0 ml-2"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
+              {/* Content & Review Form Panel */}
+              <div className="w-full md:w-1/2 flex flex-col justify-between overflow-y-auto p-6 space-y-4">
                 
-                <p className="text-xs text-slate-500 mt-2 leading-relaxed">{selectedProduct.description}</p>
-
-                <div className="mt-3 flex items-baseline gap-2">
-                  <span className="text-base font-extrabold text-slate-950">
-                    {formatCurrency(getPromoPrice(selectedProduct), selectedProduct.currency || 'CUP')}
-                  </span>
-                  {selectedProduct.promotion_discount > 0 && (
-                    <span className="text-[10px] text-slate-400 line-through">
-                      {formatCurrency(selectedProduct.price, selectedProduct.currency || 'CUP')}
-                    </span>
-                  )}
-                  <span className="text-[10px] text-slate-400 font-medium ml-auto">Stock: {selectedProduct.stock}</span>
-                </div>
-              </div>
-
-              {/* Verified reviews & star selection list */}
-              <div className="border-t border-gray-100 pt-4 flex-1 flex flex-col min-h-[150px] max-h-[300px] overflow-y-auto space-y-2">
-                {(() => {
-                  const isStaff = loggedWorker && (loggedWorker.role === 'admin' || loggedWorker.role === 'gerente');
-                  const targetReviews = isStaff ? reviews : reviews.filter(r => !r.is_hidden);
-                  
-                  return (
-                    <>
-                      <div className="flex items-center justify-between">
-                        <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Opiniones de Clientes ({targetReviews.length})</p>
-                        {isStaff && (
-                          <span className="text-[9px] bg-teal-500/10 text-teal-700 font-bold px-1.5 py-0.5 rounded border border-teal-500/20">Modo Moderación</span>
-                        )}
-                      </div>
-                      
-                      {targetReviews.length === 0 ? (
-                        <div className="text-center py-4 text-slate-400 text-xs my-auto">
-                          <p>No hay valoraciones aún.</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">¡Sé el primero en dar tu opinión!</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {targetReviews.map(rev => (
-                            <div key={rev.id} className={`p-2.5 rounded-xl border text-xs transition-all ${rev.is_hidden ? 'bg-amber-500/5 border-amber-200/50 opacity-80' : 'bg-slate-50 border-slate-100/60'}`}>
-                              <div className="flex items-center justify-between font-bold text-[10px] text-slate-700 font-sans">
-                                <span className="flex items-center gap-1.5">
-                                  {rev.customer_name}
-                                  {rev.is_hidden && (
-                                    <span className="text-[8px] bg-red-100 text-red-600 px-1 rounded uppercase font-black tracking-wider">Oculto</span>
-                                  )}
-                                </span>
-                                <div className="flex items-center gap-0.5 text-amber-400 animate-fade-in">
-                                  {Array.from({ length: 5 }).map((_, i) => (
-                                    <Star 
-                                      key={i} 
-                                      id={`star-mod-${rev.id}-${i}`}
-                                      className={`w-3 h-3 fill-current ${i < rev.rating ? 'text-amber-400' : 'text-slate-200'}`} 
-                                    />
-                                  ))}
-                                </div>
-                              </div>
-                              <p className="text-slate-600 mt-1 pl-0.5 leading-relaxed font-semibold">{rev.comment}</p>
-                              
-                              {/* Moderation Controls */}
-                              {isStaff && (
-                                <div className="mt-2 pt-2 border-t border-dashed border-slate-250 flex items-center justify-end gap-2 text-[10px]" id={`mod-action-grp-${rev.id}`}>
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      try {
-                                        await SupabaseService.toggleReviewVisibility(rev.id, !rev.is_hidden);
-                                        loadReviews(selectedProduct.id);
-                                      } catch(e) {}
-                                    }}
-                                    className="text-[9px] text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 font-bold px-1.5 py-0.5 border border-amber-200 rounded transition-all cursor-pointer"
-                                  >
-                                    {rev.is_hidden ? 'Mostrar en Tienda' : 'Ocultar'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      if (confirm('¿Está totalmente seguro de eliminar permanentemente esta opinión de cliente? Esta acción no se puede deshacer.')) {
-                                        try {
-                                          await SupabaseService.deleteReview(rev.id);
-                                          loadReviews(selectedProduct.id);
-                                        } catch(e){}
-                                      }
-                                    }}
-                                    className="text-[9px] text-red-700 hover:text-red-800 bg-red-50 hover:bg-red-100 font-bold px-1.5 py-0.5 border border-red-200 rounded transition-all cursor-pointer"
-                                  >
-                                    Eliminar
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-
-              {/* Form to leave a review */}
-              <form onSubmit={handleCreateReview} className="border-t border-gray-100 pt-4 space-y-2">
-                <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Dejar tu Valoración</p>
-                {reviewError && (
-                  <div className="p-2.5 bg-red-50 text-red-700 border border-red-100 rounded-lg text-[10px] font-bold">
-                    {reviewError}
+                {/* Header Info */}
+                <div>
+                  <div className="flex items-start justify-between">
+                    <h3 className="font-extrabold text-slate-900 text-base leading-tight">{selectedProduct.name}</h3>
+                    <button 
+                      onClick={() => setSelectedProduct(null)}
+                      className="p-1 text-slate-400 hover:text-slate-800 rounded-lg cursor-pointer shrink-0 ml-2"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
                   </div>
-                )}
-                
-                <div className="grid grid-cols-2 gap-2">
+                  
+                  <p className="text-xs text-slate-500 mt-2 leading-relaxed">{selectedProduct.description}</p>
+
+                  <div className="mt-3 flex items-baseline gap-2">
+                    <span className="text-base font-extrabold text-slate-950">
+                      {formatCurrency(getPromoPrice(selectedProduct), selectedProduct.currency || 'CUP')}
+                    </span>
+                    {selectedProduct.promotion_discount > 0 && (
+                      <span className="text-[10px] text-slate-400 line-through">
+                        {formatCurrency(selectedProduct.price, selectedProduct.currency || 'CUP')}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-slate-400 font-medium ml-auto">Stock: {selectedProduct.stock}</span>
+                  </div>
+                </div>
+
+                {/* Verified reviews & star selection list */}
+                <div className="border-t border-gray-100 pt-4 flex-1 flex flex-col min-h-[150px] max-h-[300px] overflow-y-auto space-y-2">
+                  {(() => {
+                    const isStaff = loggedWorker && (loggedWorker.role === 'admin' || loggedWorker.role === 'gerente');
+                    const targetReviews = isStaff ? reviews : reviews.filter(r => !r.is_hidden);
+                    
+                    return (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Opiniones de Clientes ({targetReviews.length})</p>
+                          {isStaff && (
+                            <span className="text-[9px] bg-teal-500/10 text-teal-700 font-bold px-1.5 py-0.5 rounded border border-teal-500/20">Modo Moderación</span>
+                          )}
+                        </div>
+                        
+                        {targetReviews.length === 0 ? (
+                          <div className="text-center py-4 text-slate-400 text-xs my-auto">
+                            <p>No hay valoraciones aún.</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">¡Sé el primero en dar tu opinión!</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {targetReviews.map(rev => (
+                              <div key={rev.id} className={`p-2.5 rounded-xl border text-xs transition-all ${rev.is_hidden ? 'bg-amber-500/5 border-amber-200/50 opacity-80' : 'bg-slate-50 border-slate-100/60'}`}>
+                                <div className="flex items-center justify-between font-bold text-[10px] text-slate-700 font-sans">
+                                  <span className="flex items-center gap-1.5">
+                                    {rev.customer_name}
+                                    {rev.is_hidden && (
+                                      <span className="text-[8px] bg-red-100 text-red-600 px-1 rounded uppercase font-black tracking-wider">Oculto</span>
+                                    )}
+                                  </span>
+                                  <div className="flex items-center gap-0.5 text-amber-400 animate-fade-in">
+                                    {Array.from({ length: 5 }).map((_, i) => (
+                                      <Star 
+                                        key={i} 
+                                        id={`star-mod-${rev.id}-${i}`}
+                                        className={`w-3 h-3 fill-current ${i < rev.rating ? 'text-amber-400' : 'text-slate-200'}`} 
+                                      />
+                                    ))}
+                                  </div>
+                                </div>
+                                <p className="text-slate-600 mt-1 pl-0.5 leading-relaxed font-semibold">{rev.comment}</p>
+                                
+                                {/* Moderation Controls */}
+                                {isStaff && (
+                                  <div className="mt-2 pt-2 border-t border-dashed border-slate-250 flex items-center justify-end gap-2 text-[10px]" id={`mod-action-grp-${rev.id}`}>
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        try {
+                                          await SupabaseService.toggleReviewVisibility(rev.id, !rev.is_hidden);
+                                          loadReviews(selectedProduct.id);
+                                        } catch(e) {}
+                                      }}
+                                      className="text-[9px] text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 font-bold px-1.5 py-0.5 border border-amber-200 rounded transition-all cursor-pointer"
+                                    >
+                                      {rev.is_hidden ? 'Mostrar en Tienda' : 'Ocultar'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        if (confirm('¿Está totalmente seguro de eliminar permanentemente esta opinión de cliente? Esta acción no se puede deshacer.')) {
+                                          try {
+                                            await SupabaseService.deleteReview(rev.id);
+                                            loadReviews(selectedProduct.id);
+                                          } catch(e){}
+                                        }
+                                      }}
+                                      className="text-[9px] text-red-700 hover:text-red-800 bg-red-50 hover:bg-red-100 font-bold px-1.5 py-0.5 border border-red-200 rounded transition-all cursor-pointer"
+                                    >
+                                      Eliminar
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+
+                {/* Form to leave a review */}
+                <form onSubmit={handleCreateReview} className="border-t border-gray-100 pt-4 space-y-2">
+                  <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Dejar tu Valoración</p>
+                  {reviewError && (
+                    <div className="p-2.5 bg-red-50 text-red-700 border border-red-100 rounded-lg text-[10px] font-bold">
+                      {reviewError}
+                    </div>
+                  )}
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <input 
+                      type="text"
+                      required
+                      placeholder="Tu Nombre (Ej: Pedro)"
+                      value={newReviewName}
+                      onChange={(e) => setNewReviewName(e.target.value)}
+                      className="text-xs p-2 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none"
+                    />
+                    
+                    {/* Stars input */}
+                    <div className="flex items-center gap-1 justify-center bg-slate-50 border border-gray-200 rounded-lg px-2">
+                      <span className="text-[10px] font-bold text-slate-400 mr-1 uppercase">ESTRELLAS:</span>
+                      <select
+                        value={newReviewRating}
+                        onChange={(e) => setNewReviewRating(Number(e.target.value))}
+                        className="text-xs font-bold text-amber-500 bg-transparent border-none outline-none focus:ring-0 cursor-pointer"
+                      >
+                        <option value="5">⭐⭐⭐⭐⭐ (5)</option>
+                        <option value="4">⭐⭐⭐⭐ (4)</option>
+                        <option value="3">⭐⭐⭐ (3)</option>
+                        <option value="2">⭐⭐ (2)</option>
+                        <option value="1">⭐ (1)</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <input 
                     type="text"
                     required
-                    placeholder="Tu Nombre (Ej: Pedro)"
-                    value={newReviewName}
-                    onChange={(e) => setNewReviewName(e.target.value)}
-                    className="text-xs p-2 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none"
+                    placeholder="Escribe tu reseña breve..."
+                    value={newReviewComment}
+                    onChange={(e) => setNewReviewComment(e.target.value)}
+                    className="w-full text-xs p-2 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none"
                   />
-                  
-                  {/* Stars input */}
-                  <div className="flex items-center gap-1 justify-center bg-slate-50 border border-gray-200 rounded-lg px-2">
-                    <span className="text-[10px] font-bold text-slate-400 mr-1 uppercase">ESTRELLAS:</span>
-                    <select
-                      value={newReviewRating}
-                      onChange={(e) => setNewReviewRating(Number(e.target.value))}
-                      className="text-xs font-bold text-amber-500 bg-transparent border-none outline-none focus:ring-0 cursor-pointer"
+
+                  <div className="flex justify-between items-center pt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedProduct) addToCart(selectedProduct);
+                      }}
+                      className="text-[10px] font-bold text-teal-600 hover:text-teal-700 hover:underline flex items-center gap-1 cursor-pointer"
                     >
-                      <option value="5">⭐⭐⭐⭐⭐ (5)</option>
-                      <option value="4">⭐⭐⭐⭐ (4)</option>
-                      <option value="3">⭐⭐⭐ (3)</option>
-                      <option value="2">⭐⭐ (2)</option>
-                      <option value="1">⭐ (1)</option>
-                    </select>
+                      <ShoppingBag className="w-3.5 h-3.5" />
+                      <span>Añadir al carrito</span>
+                    </button>
+
+                    <button
+                      type="submit"
+                      disabled={isSubmittingReview}
+                      className="text-[10px] font-bold bg-slate-900 hover:bg-slate-800 text-white px-4 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer disabled:bg-slate-300 disabled:cursor-not-allowed"
+                    >
+                      {isSubmittingReview ? (
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <span>Opinar</span>
+                      )}
+                    </button>
                   </div>
-                </div>
+                </form>
 
-                <input 
-                  type="text"
-                  required
-                  placeholder="Escribe tu reseña breve..."
-                  value={newReviewComment}
-                  onChange={(e) => setNewReviewComment(e.target.value)}
-                  className="w-full text-xs p-2 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none"
-                />
-
-                <div className="flex justify-between items-center pt-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (selectedProduct) addToCart(selectedProduct);
-                    }}
-                    className="text-[10px] font-bold text-teal-600 hover:text-teal-700 hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    <ShoppingBag className="w-3.5 h-3.5" />
-                    <span>Añadir al carrito</span>
-                  </button>
-
-                  <button
-                    type="submit"
-                    disabled={isSubmittingReview}
-                    className="text-[10px] font-bold bg-slate-900 hover:bg-slate-800 text-white px-4 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer disabled:bg-slate-300 disabled:cursor-not-allowed"
-                  >
-                    {isSubmittingReview ? (
-                      <RefreshCw className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <span>Opinar</span>
-                    )}
-                  </button>
-                </div>
-              </form>
-
+              </div>
             </div>
+
+            {/* Bottom Row wrapping Smart Recommendations */}
+            <div className="bg-[#FAFBFB] border-t border-gray-100 p-4 shrink-0 text-xs">
+              <h4 className="font-extrabold text-[#111827] mb-2 px-1 text-[11px] tracking-tight uppercase flex items-center gap-1.5 text-slate-700">
+                <Sparkles className="w-3.5 h-3.5 text-teal-650 animate-pulse" />
+                <span>Quizás te interese también:</span>
+              </h4>
+              <div className="grid grid-cols-3 gap-3">
+                {getSmartRecommendations(selectedProduct).map(rec => {
+                  const hasDiscount = rec.promotion_discount > 0;
+                  const finalRecPrice = getPromoPrice(rec);
+                  return (
+                    <div 
+                      key={rec.id} 
+                      onClick={() => {
+                        setSelectedProduct(rec);
+                      }}
+                      className="group cursor-pointer bg-white p-2.5 rounded-xl border border-gray-100 hover:border-teal-500/30 transition-all flex items-center gap-2.5 shadow-xs hover:shadow-xs hover:scale-[1.01]"
+                    >
+                      <img 
+                        src={rec.image_url || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=100'} 
+                        alt={rec.name}
+                        referrerPolicy="no-referrer"
+                        className="w-10 h-10 object-cover rounded-lg shrink-0 group-hover:scale-105 transition-all animate-scale-up"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-slate-800 truncate leading-snug group-hover:text-teal-600 transition-colors text-[10px]">{rec.name}</p>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="font-black text-slate-900 text-[10px]">{formatCurrency(finalRecPrice, rec.currency || 'CUP')}</span>
+                          {hasDiscount && (
+                            <span className="text-[8px] text-slate-400 line-through">
+                              {formatCurrency(rec.price, rec.currency || 'CUP')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
           </div>
         </div>
       )}

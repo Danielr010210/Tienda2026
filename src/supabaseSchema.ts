@@ -195,7 +195,18 @@ create table if not exists visitor_history (
   city varchar not null default 'La Habana'
 );
 
--- Habilitar Realtime para visitor_history
+-- 9. TABLA DE CUPONES / CÓDIGOS DE DESCUENTO
+create table if not exists coupons (
+  id uuid primary key default uuid_generate_v4(),
+  code varchar unique not null,
+  discount_type varchar not null check (discount_type in ('percent', 'fixed')),
+  discount_value numeric(10,2) not null check (discount_value > 0),
+  is_active boolean not null default true,
+  min_purchase_amount numeric(10,2) not null default 0 check (min_purchase_amount >= 0),
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- Habilitar Realtime para visitor_history y cupones
 do $$
 begin
   if not exists (
@@ -205,6 +216,18 @@ begin
     where p.pubname = 'supabase_realtime' and c.relname = 'visitor_history'
   ) then
     alter publication supabase_realtime add table visitor_history;
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_rel pr
+    join pg_publication p on p.oid = pr.prpubid
+    join pg_class c on c.oid = pr.prrelid
+    where p.pubname = 'supabase_realtime' and c.relname = 'coupons'
+  ) then
+    alter publication supabase_realtime add table coupons;
   end if;
 end $$;
 

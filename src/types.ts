@@ -155,3 +155,13 @@ export interface VisitorHistoryEntry {
   city: string;
 }
 
+export interface Coupon {
+  id: string;
+  code: string;
+  discount_type: 'percent' | 'fixed';
+  discount_value: number;
+  is_active: boolean;
+  min_purchase_amount?: number;
+  created_at?: string;
+}
+

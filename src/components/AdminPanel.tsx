@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Product, Worker, Order, AuditLog, SecurityAlert, ShopSettings, UserRole, ProductCategory, SupportInquiry, VisitorHistoryEntry } from '../types';
+import { Product, Worker, Order, AuditLog, SecurityAlert, ShopSettings, UserRole, ProductCategory, SupportInquiry, VisitorHistoryEntry, Coupon } from '../types';
 import { SupabaseService } from '../supabaseService';
 import { formatCurrency, hashSHA256 } from '../utils';
 import SupabaseGuide from './SupabaseGuide';
@@ -12,7 +12,7 @@ import Storefront from './Storefront';
 import { 
   Users, ShoppingBag, ClipboardList, Settings, ShieldAlert, 
   TrendingUp, ArrowLeft, LogOut, Check, X, ShieldCheck, 
-  Trash2, Plus, Edit2, AlertTriangle, Eye, EyeOff, LayoutDashboard, Clock, DollarSign, Database, MessageSquare
+  Trash2, Plus, Edit2, AlertTriangle, Eye, EyeOff, LayoutDashboard, Clock, DollarSign, Database, MessageSquare, Tag
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -99,6 +99,14 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   const [categoryNameInput, setCategoryNameInput] = useState('');
   const [editingCategory, setEditingCategory] = useState<ProductCategory | null>(null);
 
+  // Coupon states
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [isCouponModalOpen, setIsCouponModalOpen] = useState(false);
+  const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
+  const [couponForm, setCouponForm] = useState<Partial<Coupon>>({
+    code: '', discount_type: 'percent', discount_value: 10, is_active: true, min_purchase_amount: 0
+  });
+
   // Active Tab
   const [activeTab, setActiveTab] = useState<string>('dashboard');
 
@@ -140,6 +148,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       const cats = await SupabaseService.getCategories();
       const sups = await SupabaseService.getSupportInquiries();
       const vis = await SupabaseService.getVisitorHistory();
+      const cps = await SupabaseService.getCoupons();
 
       setProducts(prodList);
       setOrders(ords);
@@ -159,6 +168,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       setCategories(cats);
       setSupportInquiries(sups);
       setVisitorHistory(vis);
+      setCoupons(cps);
     } catch (e) {
       console.error('Error loading admin panel resource pools:', e);
     }
@@ -1282,6 +1292,16 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                       <Eye className="w-4 h-4" />
                       <span>🧪 Tienda de Prueba</span>
                     </button>
+
+                    <button
+                      onClick={() => { setActiveTab('cupones'); setIsMobileMenuOpen(false); }}
+                      className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
+                        activeTab === 'cupones' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
+                      }`}
+                    >
+                      <Tag className="w-4 h-4 text-teal-400" />
+                      <span>🎟️ Gestión de Cupones</span>
+                    </button>
                   </>
                 )}
 
@@ -1969,6 +1989,121 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                             </tr>
                           );
                         })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* =========================================================
+                TAB: GESTIÓN DE CUPONES DE DESCUENTO (ADMIN ONLY)
+                ========================================================= */}
+            {activeTab === 'cupones' && isAdmin && (
+              <div className="space-y-6 animate-fade-in" id="coupons-panel-root">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-200 pb-5">
+                  <div>
+                    <h2 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
+                      <Tag className="w-5 h-5 text-teal-650" />
+                      <span>🎟️ Gestión de Cupones de Descuento</span>
+                    </h2>
+                    <p className="text-[10px] text-slate-400 font-medium font-sans">
+                      Configura códigos promocionales especiales, descuentos fijos o porcentajes aplicables al total de la compra.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setEditingCoupon(null);
+                      setCouponForm({
+                        code: '',
+                        discount_type: 'percent',
+                        discount_value: 10,
+                        is_active: true,
+                        min_purchase_amount: 0
+                      });
+                      setIsCouponModalOpen(true);
+                    }}
+                    className="text-xs font-bold bg-teal-500 hover:bg-teal-600 text-slate-950 px-4 py-2.5 rounded-xl shadow-md cursor-pointer flex items-center gap-1.5 active:scale-95 transition-all text-center self-start"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Nuevo Cupón</span>
+                  </button>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-gray-200/60 shadow-sm overflow-hidden text-xs">
+                  <div className="overflow-x-auto font-sans">
+                    <table className="w-full text-left">
+                      <thead className="bg-[#FAFBFB] text-[10px] font-bold text-slate-500 uppercase border-b border-gray-100">
+                        <tr>
+                          <th className="px-5 py-3">Código Promocional</th>
+                          <th className="px-5 py-3">Tipo Descuento</th>
+                          <th className="px-5 py-3 text-right">Valor Descuento</th>
+                          <th className="px-5 py-3 text-right">Compra Mínima</th>
+                          <th className="px-5 py-3 text-center">Estado</th>
+                          <th className="px-5 py-3 text-center">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-5 font-medium">
+                        {coupons.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="px-5 py-10 text-center text-slate-400 font-semibold italic">
+                              No hay cupones registrados. Presione "Nuevo Cupón" para crear uno.
+                            </td>
+                          </tr>
+                        ) : (
+                          coupons.map((cp) => (
+                            <tr key={cp.id} className="hover:bg-slate-50/50 transition-colors">
+                              <td className="px-5 py-3.5">
+                                <span className="font-black font-mono bg-teal-50 text-teal-850 border border-teal-100 px-2.5 py-1 rounded text-xs select-all">
+                                  {cp.code}
+                                </span>
+                              </td>
+                              <td className="px-5 py-3.5 uppercase text-[10px] font-extrabold text-slate-500">
+                                {cp.discount_type === 'percent' ? 'Porcentual (%)' : 'Monto Fijo (CUP)'}
+                              </td>
+                              <td className="px-5 py-3.5 text-right font-bold text-slate-900">
+                                {cp.discount_type === 'percent' ? `${cp.discount_value}%` : formatCurrency(cp.discount_value, settings?.currency || 'CUP')}
+                              </td>
+                              <td className="px-5 py-3.5 text-right text-slate-500">
+                                {cp.min_purchase_amount && cp.min_purchase_amount > 0 ? formatCurrency(cp.min_purchase_amount, settings?.currency || 'CUP') : 'Sin mínimo'}
+                              </td>
+                              <td className="px-5 py-3.5 text-center">
+                                <span className={`inline-block text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+                                  cp.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                                }`}>
+                                  {cp.is_active ? 'Activo' : 'Inactivo'}
+                                </span>
+                              </td>
+                              <td className="px-5 py-3.5 text-center">
+                                <div className="flex items-center justify-center gap-2">
+                                  <button
+                                    onClick={() => {
+                                      setEditingCoupon(cp);
+                                      setCouponForm(cp);
+                                      setIsCouponModalOpen(true);
+                                    }}
+                                    className="p-1 px-2 border border-gray-200 hover:border-slate-400 rounded hover:bg-slate-50 text-slate-700 flex items-center gap-1 cursor-pointer font-bold"
+                                  >
+                                    <Edit2 className="w-3 h-3" />
+                                    <span>Editar</span>
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      if (confirm('¿Está totalmente seguro de eliminar este cupón?')) {
+                                        await SupabaseService.deleteCoupon(cp.id);
+                                        const updated = await SupabaseService.getCoupons();
+                                        setCoupons(updated);
+                                      }
+                                    }}
+                                    className="p-1 text-red-500 hover:bg-red-50 rounded border border-transparent hover:border-red-100 cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -2882,6 +3017,128 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
 
           </main>
         </>
+      )}
+
+      {/* =========================================================
+          FORM MODAL COUPONS (Add / Edit)
+          ========================================================= */}
+      {isCouponModalOpen && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4" id="coupon-modal-full-overlay">
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col text-xs animate-scale-up">
+            <div className="p-5 bg-slate-900 text-white flex items-center justify-between">
+              <h3 className="font-bold text-sm tracking-tight">{editingCoupon ? 'Editar Cupón de Descuento' : 'Agregar Nuevo Cupón'}</h3>
+              <button onClick={() => setIsCouponModalOpen(false)} className="text-slate-300 hover:text-white cursor-pointer" title="Cerrar modal">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form 
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!couponForm.code || !couponForm.discount_value) {
+                  alert('Por favor complete todos los datos requeridos.');
+                  return;
+                }
+                const payload: Coupon = {
+                  id: editingCoupon?.id || `cp-${Date.now()}`,
+                  code: couponForm.code.toUpperCase().trim(),
+                  discount_type: couponForm.discount_type || 'percent',
+                  discount_value: Number(couponForm.discount_value) || 0,
+                  is_active: couponForm.is_active !== false,
+                  min_purchase_amount: Number(couponForm.min_purchase_amount) || 0
+                };
+                try {
+                  await SupabaseService.saveCoupon(payload);
+                  setIsCouponModalOpen(false);
+                  setEditingCoupon(null);
+                  const updated = await SupabaseService.getCoupons();
+                  setCoupons(updated);
+                } catch(err) {
+                  console.error('Error saving coupon:', err);
+                }
+              }} 
+              className="p-6 space-y-4"
+            >
+              <div>
+                <label className="block text-[10px] font-bold text-slate-650 uppercase tracking-widest mb-1">Código del Cupón <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: VERANO30"
+                  value={couponForm.code || ''}
+                  onChange={(e) => setCouponForm({ ...couponForm, code: e.target.value.toUpperCase() })}
+                  className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none uppercase font-mono font-bold"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-650 uppercase tracking-widest mb-1">Tipo de Descuento</label>
+                  <select
+                    value={couponForm.discount_type || 'percent'}
+                    onChange={(e) => setCouponForm({ ...couponForm, discount_type: e.target.value as 'percent' | 'fixed' })}
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none cursor-pointer"
+                  >
+                    <option value="percent">Porcentual (%)</option>
+                    <option value="fixed">Monto Fijo (CUP)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-650 uppercase tracking-widest mb-1">Valor Descuento <span className="text-red-500">*</span></label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    value={couponForm.discount_value || ''}
+                    onChange={(e) => setCouponForm({ ...couponForm, discount_value: Number(e.target.value) })}
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none font-bold"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-650 uppercase tracking-widest mb-1">Monto Mínimo de Compra (CUP)</label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="0 para desactivar"
+                  value={couponForm.min_purchase_amount || 0}
+                  onChange={(e) => setCouponForm({ ...couponForm, min_purchase_amount: Number(e.target.value) })}
+                  className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none font-bold"
+                />
+                <p className="text-[9px] text-slate-400 mt-1">El cupón solo se aplicará si el carrito alcanza este monto.</p>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <input
+                  type="checkbox"
+                  id="coupon_is_active"
+                  checked={couponForm.is_active !== false}
+                  onChange={(e) => setCouponForm({ ...couponForm, is_active: e.target.checked })}
+                  className="w-4 h-4 text-teal-650 focus:ring-teal-500 border-gray-300 rounded cursor-pointer animate-pulse"
+                />
+                <label htmlFor="coupon_is_active" className="text-[11px] font-bold text-slate-750 cursor-pointer select-none">Habilitar/Activar Cupón</label>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 border-t border-gray-100 pt-4 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setIsCouponModalOpen(false)}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-4 rounded-xl cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="bg-slate-900 hover:bg-slate-850 text-white font-bold py-2 px-5 rounded-xl cursor-pointer"
+                >
+                  Guardar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* =========================================================

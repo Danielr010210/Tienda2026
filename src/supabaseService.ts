@@ -4,7 +4,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { Product, Worker, Order, AuditLog, SecurityAlert, ShopSettings, ProductCategory, ProductReview, SupportInquiry, VisitorHistoryEntry } from './types';
+import { Product, Worker, Order, AuditLog, SecurityAlert, ShopSettings, ProductCategory, ProductReview, SupportInquiry, VisitorHistoryEntry, Coupon } from './types';
 import { generateInvoiceNumber, hashSHA256 } from './utils';
 
 // Helper to check if string is a valid UUID
@@ -344,26 +344,67 @@ export class SupabaseService {
           };
           
           if (isIdUuid) {
-            rowData.id = product.id;
-            await client.from('products').upsert(rowData);
+            const { data: existing, error: checkError } = await client
+              .from('products')
+              .select('id')
+              .eq('id', product.id)
+              .maybeSingle();
+
+            if (checkError) {
+              console.error('Error checking existing product in Supabase:', checkError);
+            }
+
+            if (existing) {
+              const { error: updateError } = await client
+                .from('products')
+                .update(rowData)
+                .eq('id', product.id);
+              if (updateError) {
+                console.error('Error updating product in Supabase:', updateError);
+                throw updateError;
+              }
+            } else {
+              const { error: insertError } = await client
+                .from('products')
+                .insert({ ...rowData, id: product.id });
+              if (insertError) {
+                console.error('Error inserting product in Supabase:', insertError);
+                throw insertError;
+              }
+            }
           } else {
             // First check if a product with the same name already exists in the real DB to update it,
             // or insert it as a new product
-            const { data: existing } = await client
+            const { data: existing, error: nameCheckError } = await client
               .from('products')
               .select('id')
               .eq('name', product.name)
               .maybeSingle();
             
+            if (nameCheckError) {
+              console.error('Error checking product by name in Supabase:', nameCheckError);
+            }
+            
             if (existing) {
-              await client.from('products').update(rowData).eq('id', existing.id);
+              const { error: updateError } = await client
+                .from('products')
+                .update(rowData)
+                .eq('id', existing.id);
+              if (updateError) {
+                console.error('Error updating product by name in Supabase:', updateError);
+                throw updateError;
+              }
               product.id = existing.id;
             } else {
-              const { data: inserted } = await client
+              const { data: inserted, error: insertError } = await client
                 .from('products')
                 .insert(rowData)
                 .select('id')
                 .single();
+              if (insertError) {
+                console.error('Error inserting non-UUID product in Supabase:', insertError);
+                throw insertError;
+              }
               if (inserted) {
                 product.id = inserted.id;
               }
@@ -1011,6 +1052,83 @@ export class SupabaseService {
           await client.from('product_categories').delete().eq('id', id);
         } catch (e) {
           console.error('Error deleting category from Supabase:', e);
+        }
+      }
+    }
+  }
+
+  // --- COUPONS / CUPONES ---
+  static async getCoupons(): Promise<Coupon[]> {
+    const defaultCoupons: Coupon[] = [
+      { id: 'cp-1', code: 'BIENVENIDO10', discount_type: 'percent', discount_value: 10, is_active: true, min_purchase_amount: 0 },
+      { id: 'cp-2', code: 'PROMO20', discount_type: 'percent', discount_value: 20, is_active: true, min_purchase_amount: 0 },
+      { id: 'cp-3', code: 'DESCON99', discount_type: 'fixed', discount_value: 99, is_active: true, min_purchase_amount: 0 }
+    ];
+    const local = getLocalStorageItem<Coupon[]>('shop_coupons', defaultCoupons);
+    if (!this.isReal()) return local;
+    const client = this.getClient();
+    if (!client) return local;
+    try {
+      const { data, error } = await client.from('coupons').select('*').order('code');
+      if (error) return local;
+      return data && data.length > 0 ? data : local;
+    } catch {
+      return local;
+    }
+  }
+
+  static async saveCoupon(coupon: Coupon): Promise<void> {
+    const coupons = await this.getCoupons();
+    const idx = coupons.findIndex(c => c.id === coupon.id);
+    if (idx >= 0) {
+      coupons[idx] = coupon;
+    } else {
+      coupons.push(coupon);
+    }
+    setLocalStorageItem('shop_coupons', coupons);
+
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try {
+          const isIdUuid = isUUID(coupon.id);
+          const rowData: any = {
+            code: coupon.code.toUpperCase().trim(),
+            discount_type: coupon.discount_type,
+            discount_value: coupon.discount_value,
+            is_active: coupon.is_active,
+            min_purchase_amount: coupon.min_purchase_amount || 0
+          };
+          if (isIdUuid) {
+            rowData.id = coupon.id;
+            await client.from('coupons').upsert(rowData);
+          } else {
+            const { data: existing } = await client.from('coupons').select('id').eq('code', coupon.code).maybeSingle();
+            if (existing) {
+              await client.from('coupons').update(rowData).eq('id', existing.id);
+            } else {
+              await client.from('coupons').insert(rowData);
+            }
+          }
+        } catch (e) {
+          console.error('Error saving coupon to Supabase:', e);
+        }
+      }
+    }
+  }
+
+  static async deleteCoupon(id: string): Promise<void> {
+    const coupons = await this.getCoupons();
+    const filtered = coupons.filter(c => c.id !== id);
+    setLocalStorageItem('shop_coupons', filtered);
+
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try {
+          await client.from('coupons').delete().eq('id', id);
+        } catch (e) {
+          console.error('Error deleting coupon from Supabase:', e);
         }
       }
     }
