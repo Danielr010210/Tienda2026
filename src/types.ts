@@ -107,6 +107,9 @@ export interface ShopSettings {
   maps_option?: 'address' | 'coords' | 'embed';
   maps_coords?: string;
   maps_embed_url?: string;
+  telegram_bot_token?: string;
+  telegram_chat_id?: string;
+  telegram_enabled?: boolean;
 }
 
 export interface ProductCategory {

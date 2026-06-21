@@ -154,7 +154,10 @@ const DEFAULT_SETTINGS: ShopSettings = {
   loading_text: 'Actualizando, por favor espere. Disculpe por las molestias ocasionadas',
   maps_option: 'address',
   maps_coords: '',
-  maps_embed_url: ''
+  maps_embed_url: '',
+  telegram_bot_token: '',
+  telegram_chat_id: '',
+  telegram_enabled: false
 };
 
 const DEFAULT_AUDITS: AuditLog[] = [
@@ -726,7 +729,46 @@ export class SupabaseService {
         }
       }
     }
+
+    // Trigger Telegram notification in background
+    this.sendTelegramInvoice(newOrder).catch(err => {
+      console.error('Error in sendTelegramInvoice background promise:', err);
+    });
+
     return newOrder;
+  }
+
+  static async sendTelegramInvoice(order: Order): Promise<void> {
+    try {
+      const settings = await this.getSettings();
+      if (!settings || !settings.telegram_enabled || !settings.telegram_bot_token || !settings.telegram_chat_id) {
+        return;
+      }
+      
+      const botToken = settings.telegram_bot_token.trim();
+      const chatId = settings.telegram_chat_id.trim();
+      if (!botToken || !chatId) return;
+
+      const shopName = settings.shop_name || 'Nuestra Tienda';
+      const itemsList = order.items.map(it => {
+        const itemTotal = it.price_sold * it.quantity;
+        return `• <b>${it.product_name}</b> x${it.quantity} (${it.currency || 'CUP'})\n  Precio: $${it.price_sold} -> Total: $${itemTotal}`;
+      }).join('\n');
+
+      const messageText = `🔔 <b>NUEVO PEDIDO CONFIRMADO</b> 🏪\n----------------------------------\n<b>Factura:</b> <code>#${order.invoice_number}</code>\n<b>Tienda:</b> ${shopName}\n<b>Fecha:</b> ${new Date(order.created_at || Date.now()).toLocaleString('es-ES')}\n\n👤 <b>Cliente:</b>\n• Nombre: ${order.customer_name} ${order.customer_lastname || ''}\n• Teléfono: ${order.customer_phone || 'N/A'}\n• Dirección: ${order.customer_address || 'N/A'}\n• Referencia: ${order.customer_reference || 'N/A'}\n\n📦 <b>Detalles del Pedido:</b>\n${itemsList}\n\n💰 <b>TOTAL DEL PEDIDO:</b>\n• Importe: <b>$${order.total}</b> (${settings.currency || 'CUP'})\n----------------------------------\n🛒 ¡Se ha registrado con éxito en el sistema!`;
+
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: messageText,
+          parse_mode: 'HTML'
+        })
+      });
+    } catch (e) {
+      console.error('Failed to send Telegram invoice:', e);
+    }
   }
 
   static async updateOrderStatus(

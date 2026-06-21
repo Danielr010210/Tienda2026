@@ -12,7 +12,8 @@ import Storefront from './Storefront';
 import { 
   Users, ShoppingBag, ClipboardList, Settings, ShieldAlert, 
   TrendingUp, ArrowLeft, LogOut, Check, X, ShieldCheck, 
-  Trash2, Plus, Edit2, AlertTriangle, Eye, EyeOff, LayoutDashboard, Clock, DollarSign, Database, MessageSquare, Tag
+  Trash2, Plus, Edit2, AlertTriangle, Eye, EyeOff, LayoutDashboard, Clock, DollarSign, Database, MessageSquare, Tag,
+  Store, Send
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -83,6 +84,27 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [alerts, setAlerts] = useState<SecurityAlert[]>([]);
   const [settings, setSettings] = useState<ShopSettings | null>(null);
+
+  // Quick-edit store data states ('datos_tienda' tab)
+  const [quickShopName, setQuickShopName] = useState('');
+  const [quickContactNumber, setQuickContactNumber] = useState('');
+  const [quickAddress, setQuickAddress] = useState('');
+
+  // Telegram credentials states ('telegram_bot' tab)
+  const [tgBotToken, setTgBotToken] = useState('');
+  const [tgChatId, setTgChatId] = useState('');
+  const [tgEnabled, setTgEnabled] = useState(false);
+
+  useEffect(() => {
+    if (settings) {
+      setQuickShopName(settings.shop_name || '');
+      setQuickContactNumber(settings.contact_number || '');
+      setQuickAddress(settings.address || '');
+      setTgBotToken(settings.telegram_bot_token || '');
+      setTgChatId(settings.telegram_chat_id || '');
+      setTgEnabled(!!settings.telegram_enabled);
+    }
+  }, [settings]);
 
   // New States: Categories, Support tickets, Active Clients
   const [categories, setCategories] = useState<ProductCategory[]>([]);
@@ -782,6 +804,107 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     }
   };
 
+  // Real-time quick save of store contact identity fields
+  const handleQuickSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!settings || !currentUser) return;
+    try {
+      const updatedSettings = {
+        ...settings,
+        shop_name: quickShopName,
+        contact_number: quickContactNumber,
+        address: quickAddress,
+      };
+      
+      await SupabaseService.saveSettings(updatedSettings, currentUser.name);
+      setSettings(updatedSettings);
+      
+      // Keep draft settings in sync
+      if (draftSettings) {
+        setDraftSettings({
+          ...draftSettings,
+          shop_name: quickShopName,
+          contact_number: quickContactNumber,
+          address: quickAddress,
+        });
+      }
+      
+      // Notify storefront
+      onProductsUpdated();
+      alert('🏪 ¡Datos de la tienda actualizados exitosamente en tiempo real!');
+    } catch (err: any) {
+      console.error(err);
+      alert('Error al actualizar datos de la tienda: ' + err.message);
+    }
+  };
+
+  // Real-time quick save of Telegram Bot settings
+  const handleSaveTelegramConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!settings || !currentUser) return;
+    try {
+      const updatedSettings = {
+        ...settings,
+        telegram_bot_token: tgBotToken,
+        telegram_chat_id: tgChatId,
+        telegram_enabled: tgEnabled,
+      };
+      
+      await SupabaseService.saveSettings(updatedSettings, currentUser.name);
+      setSettings(updatedSettings);
+      
+      // Keep draft settings in sync
+      if (draftSettings) {
+        setDraftSettings({
+          ...draftSettings,
+          telegram_bot_token: tgBotToken,
+          telegram_chat_id: tgChatId,
+          telegram_enabled: tgEnabled,
+        });
+      }
+      
+      // Notify storefront
+      onProductsUpdated();
+      alert('🤖 ¡Configuración de Telegram guardada y vinculada con éxito!');
+    } catch (err: any) {
+      console.error(err);
+      alert('Error al guardar configuración de Telegram: ' + err.message);
+    }
+  };
+
+  const [testMessageLoading, setTestMessageLoading] = useState(false);
+  const handleTestTelegramNotification = async () => {
+    if (!tgBotToken.trim() || !tgChatId.trim()) {
+      alert('Por favor, introduzca el Token de Bot y el Chat ID antes de realizar la prueba.');
+      return;
+    }
+    setTestMessageLoading(true);
+    try {
+      const text = `🔔 <b>PRUEBA DE CONEXIÓN CON TELEGRAM</b> 🤖\n----------------------------------\n¡La conexión con la tienda en vivo <b>${quickShopName || 'Tu Tienda'}</b> funciona correctamente!\n\nA partir de este momento, tus clientes recibirán las facturas de sus pedidos directamente por este canal en tiempo real.`;
+      
+      const response = await fetch(`https://api.telegram.org/bot${tgBotToken.trim()}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: tgChatId.trim(),
+          text,
+          parse_mode: 'HTML'
+        })
+      });
+
+      if (response.ok) {
+        alert('🎉 ¡Mensaje de prueba por Telegram enviado exitosamente! Revisa tu aplicación de Telegram.');
+      } else {
+        const errJson = await response.json().catch(() => ({}));
+        alert(`Error desde Telegram. Servidor respondió: ${response.status}. Asegúrate de haber escrito correctamente tus datos y haber enviado un mensaje /start al bot.`);
+      }
+    } catch (err: any) {
+      alert('Error en la comunicación con la API de Telegram: ' + err.message);
+    } finally {
+      setTestMessageLoading(false);
+    }
+  };
+
   // Resolve Alarms
   const handleResolveAlert = async (id: string) => {
     try {
@@ -1430,6 +1553,31 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                     >
                       <Tag className="w-4 h-4 text-teal-400" />
                       <span>🎟️ Gestión de Cupones</span>
+                    </button>
+                  </>
+                )}
+
+                {/* Real-time shop data and Telegram tabs: Admin or Manager */}
+                {(isAdmin || isManager) && (
+                  <>
+                    <button
+                      onClick={() => { setActiveTab('datos_tienda'); setIsMobileMenuOpen(false); }}
+                      className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
+                        activeTab === 'datos_tienda' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
+                      }`}
+                    >
+                      <Store className="w-4 h-4 text-teal-400" />
+                      <span>🏪 Datos de la Tienda</span>
+                    </button>
+
+                    <button
+                      onClick={() => { setActiveTab('telegram_bot'); setIsMobileMenuOpen(false); }}
+                      className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
+                        activeTab === 'telegram_bot' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
+                      }`}
+                    >
+                      <Send className="w-4 h-4 text-sky-400" />
+                      <span>🤖 Telegram</span>
                     </button>
                   </>
                 )}
@@ -2592,6 +2740,20 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                         ＋ Agregar Moneda
                       </button>
                     </div>
+
+                    <div className="pt-4 border-t border-gray-100">
+                      <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Moneda Principal de la Tienda (Por Defecto)</label>
+                      <select
+                        value={draftSettings.currency || 'CUP'}
+                        onChange={(e) => setDraftSettings({ ...draftSettings, currency: e.target.value })}
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer font-bold"
+                      >
+                        {(draftSettings.currencies || ['USD', 'CUP', 'MLC', 'EUR']).map((curr) => (
+                          <option key={curr} value={curr}>{curr}</option>
+                        ))}
+                      </select>
+                      <p className="text-[9px] text-slate-400 mt-1">Esta moneda se usará por defecto para la visualización comercial del rango general de precios y cupones de descuento fijos.</p>
+                    </div>
                   </div>
 
                   {/* CARD 5: Banner de Promociones */}
@@ -3150,6 +3312,188 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
               </div>
             )}
 
+            {/* =========================================================
+                TAB 10. DATOS DE LA TIENDA (Real time)
+                ========================================================= */}
+            {activeTab === 'datos_tienda' && (isAdmin || isManager) && (
+              <div className="max-w-2xl space-y-6 animate-fade-in pb-12 text-xs">
+                <div className="border-b border-gray-200 pb-5">
+                  <h2 className="text-xl font-black tracking-tight text-slate-900">🏪 Datos en Tiempo Real de la Tienda</h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Actualiza la información básica visible para los clientes al instante. Estos cambios se aplican de manera inmediata sin requerir aprobación de administrador externa.
+                  </p>
+                </div>
+
+                <form onSubmit={handleQuickSaveSettings} className="space-y-6">
+                  <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4 shadow-sm">
+                    <h3 className="font-extrabold text-sm text-slate-800 tracking-tight border-b border-gray-100 pb-2">📂 Identidad Comercial Básica</h3>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Nombre Comercial de la Tienda</label>
+                        <input
+                          type="text"
+                          required
+                          value={quickShopName}
+                          onChange={(e) => setQuickShopName(e.target.value)}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-bold text-slate-800"
+                          placeholder="Ej. Boutique Minimal"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Teléfono Público de Soporte / Contacto</label>
+                        <input
+                          type="text"
+                          required
+                          value={quickContactNumber}
+                          onChange={(e) => setQuickContactNumber(e.target.value)}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-bold text-slate-800"
+                          placeholder="Ej. +53 51234567"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Dirección Física del Establecimiento</label>
+                        <input
+                          type="text"
+                          required
+                          value={quickAddress}
+                          onChange={(e) => setQuickAddress(e.target.value)}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-bold text-slate-800"
+                          placeholder="Ej. Gran Vía 45, La Habana, Cuba"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      className="bg-teal-600 hover:bg-teal-700 text-white font-bold px-6 py-2.5 rounded-xl shadow-md cursor-pointer transition-all active:scale-95"
+                    >
+                      💾 Guardar Datos en Vivo
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* =========================================================
+                TAB 11. TELEGRAM BOT INTEGRATION
+                ========================================================= */}
+            {activeTab === 'telegram_bot' && (isAdmin || isManager) && (
+              <div className="max-w-3xl space-y-6 animate-fade-in pb-12 text-xs">
+                <div className="border-b border-gray-200 pb-5">
+                  <h2 className="text-xl font-black tracking-tight text-slate-900">🤖 Vinculación con Bot de Telegram</h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Conecta un bot de Telegram al checkout de la tienda para enviar automáticamente la factura detallada a tu chat privado, grupo o canal cada vez que un cliente confirme un pedido.
+                  </p>
+                </div>
+
+                {/* Explicación de Funcionamiento */}
+                <div className="bg-slate-50 rounded-2xl border border-gray-200/80 p-6 space-y-4">
+                  <h3 className="font-extrabold text-sm text-slate-800 tracking-tight">📘 Guía Esencial: ¿Cómo funciona este sistema?</h3>
+                  <div className="text-xs text-slate-600 space-y-2.5 leading-relaxed">
+                    <p>
+                      La vinculación se realiza mediante la API de mensajería HTTP oficial de Telegram. Al activar este canal, cada vez que un cliente complete su compra en la tienda (Storefront), el sistema recopila los datos del pedido y el cliente, construye un mensaje estructurado en HTML y realiza una solicitud directa al servidor de Telegram usando tu <strong>Bot Token</strong> y tu <strong>Chat ID</strong> para notificarte instantáneamente.
+                    </p>
+                    <p className="font-semibold text-slate-700">Pasos rápidos para configurar:</p>
+                    <ol className="list-decimal pl-5 space-y-2.5 text-xs text-slate-600">
+                      <li>
+                        Abre Telegram y busca al usuario oficial <strong className="text-sky-600 font-bold">@BotFather</strong>. Envía el comando <code className="bg-white px-1.5 py-0.5 border border-gray-200 rounded font-bold text-red-500">/newbot</code>, asígnale el nombre que prefieras y obtendrás un código <strong>HTTP API Token</strong> (Bot Token).
+                      </li>
+                      <li>
+                        Inicia conversación privada con tu bot recién creado clicando en su enlace de Telegram y presionando <strong className="text-sky-600 font-bold">Comenzar / /start</strong>.
+                      </li>
+                      <li>
+                        Busca en Telegram el bot <strong className="text-sky-600 font-bold">@userinfobot</strong> e inicia conversación; te responderá de inmediato con tu ID numérica de usuario (ej. 123456789). Este es tu <strong>Chat ID</strong>. Pégalo abajo junto con el Token.
+                      </li>
+                      <li>
+                        Si deseas que las facturas se envíen a un grupo, crea un grupo en Telegram, agrega a tu bot como Administrador, y configura el Chat ID del grupo en el casillero (los ID de grupo suelen comenzar con un guion negativo, ej. <code className="bg-white px-1 font-bold font-mono">-10098765432</code>).
+                      </li>
+                    </ol>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSaveTelegramConfig} className="space-y-6">
+                  <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5 shadow-sm">
+                    <h3 className="font-extrabold text-sm text-slate-800 tracking-tight border-b border-gray-100 pb-2">🔑 Parámetros de Conexión</h3>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Telegram Bot Token (obtenido de @BotFather)</label>
+                        <input
+                          type="password"
+                          required={tgEnabled}
+                          value={tgBotToken}
+                          onChange={(e) => setTgBotToken(e.target.value)}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono"
+                          placeholder="Ej. 1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Telegram Chat ID / Group ID</label>
+                        <input
+                          type="text"
+                          required={tgEnabled}
+                          value={tgChatId}
+                          onChange={(e) => setTgChatId(e.target.value)}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono"
+                          placeholder="Ej. 987654321 o -10012345678"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-2">
+                      <input
+                        type="checkbox"
+                        id="tgEnabledCheck"
+                        checked={tgEnabled}
+                        onChange={(e) => setTgEnabled(e.target.checked)}
+                        className="w-4 h-4 text-teal-600 border-gray-300 rounded cursor-pointer"
+                      />
+                      <label htmlFor="tgEnabledCheck" className="font-bold text-slate-700 cursor-pointer select-none">
+                        Vincular y Activar Envío de Facturas de pedidos por Telegram en Vivo
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center gap-4">
+                    <button
+                      type="button"
+                      disabled={testMessageLoading}
+                      onClick={handleTestTelegramNotification}
+                      className="bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-200 font-bold px-4 py-2.5 rounded-xl cursor-pointer transition-all active:scale-95 disabled:opacity-50 text-center flex items-center gap-1.5"
+                    >
+                      <span>⚡ Enviar Mensaje de Prueba</span>
+                    </button>
+
+                    <button
+                      type="submit"
+                      className="bg-teal-600 hover:bg-teal-700 text-white font-bold px-6 py-2.5 rounded-xl shadow-md cursor-pointer transition-all active:scale-95"
+                    >
+                      💾 Guardar Configuración de Telegram
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* =========================================================
+                TAB 9. DATABASE MANUAL / CAPABILITIES
+                ========================================================= */}
+            {activeTab === 'database' && (
+              <div className="space-y-6">
+                <div className="border-b border-gray-200 pb-5">
+                  <h2 className="text-xl font-bold tracking-tight text-slate-900">Estructuras Supabase Realtime</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">Controla tu motor de base de datos elástico en tiempo real.</p>
+                </div>
+                <SupabaseGuide />
+              </div>
+            )}
+
           </main>
         </>
       )}
@@ -3344,10 +3688,9 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                     onChange={(e) => setProductForm({ ...productForm, currency: e.target.value })}
                     className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none font-bold cursor-pointer"
                   >
-                    <option value="CUP">CUP</option>
-                    <option value="USD">USD</option>
-                    <option value="EUR">EUR</option>
-                    <option value="MLC">MLC</option>
+                    {(settings?.currencies || ['USD', 'CUP', 'MLC', 'EUR']).map((curr) => (
+                      <option key={curr} value={curr}>{curr}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="col-span-1">
