@@ -195,17 +195,17 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
     };
   }, []);
 
-  // Fetch shop data
+  // Fetch shop data on mount/refresher and poll every 15 seconds
   useEffect(() => {
-    async function loadData() {
-      setLoading(true);
+    async function loadData(silent = false) {
+      if (!silent) setLoading(true);
       try {
         // Run database connection check
         const connected = await SupabaseService.checkConnection();
         setIsDbConnected(connected);
         
         if (!connected) {
-          setLoading(false);
+          if (!silent) setLoading(false);
           return;
         }
 
@@ -224,12 +224,20 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
         }
       } catch (e) {
         console.error('Error fetching storefront data:', e);
-        setIsDbConnected(false);
+        if (!silent) setIsDbConnected(false);
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
       }
     }
-    loadData();
+
+    loadData(false);
+
+    // Dynamic high-frequency background synchronization (polling)
+    const interval = setInterval(() => {
+      loadData(true);
+    }, 15000); // 15 seconds silent autosync
+
+    return () => clearInterval(interval);
   }, [productsRefresher, previewSettings]);
 
   // Load reviews when selected product changes in modal
