@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Product, Order, ShopSettings, ProductReview, SupportInquiry, Coupon } from '../types';
 import { SupabaseService } from '../supabaseService';
 import { formatCurrency, generateInvoiceNumber } from '../utils';
@@ -110,6 +110,46 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
       setLoggedWorker(null);
     }
   }, []);
+
+  // Inactivity timeout for worker session: 1 minute
+  const handleInactivityLogoutStore = () => {
+    if (loggedWorker) {
+      setLoggedWorker(null);
+      localStorage.removeItem('active_worker_session');
+    }
+  };
+
+  const logoutStoreRef = useRef(handleInactivityLogoutStore);
+  useEffect(() => {
+    logoutStoreRef.current = handleInactivityLogoutStore;
+  }, [loggedWorker]);
+
+  useEffect(() => {
+    if (!loggedWorker) return;
+
+    let timeoutId: NodeJS.Timeout;
+
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        logoutStoreRef.current();
+      }, 60000); // 1 minute without activity
+    };
+
+    resetTimer();
+
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+    events.forEach(eventName => {
+      window.addEventListener(eventName, resetTimer);
+    });
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      events.forEach(eventName => {
+        window.removeEventListener(eventName, resetTimer);
+      });
+    };
+  }, [!!loggedWorker]);
 
   // Detail Modal for Product Reviews / Star rating
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);

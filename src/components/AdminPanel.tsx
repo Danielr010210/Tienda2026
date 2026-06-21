@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Product, Worker, Order, AuditLog, SecurityAlert, ShopSettings, UserRole, ProductCategory, SupportInquiry, VisitorHistoryEntry, Coupon } from '../types';
 import { SupabaseService } from '../supabaseService';
 import { formatCurrency, hashSHA256 } from '../utils';
@@ -433,6 +433,47 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     setCurrentUser(null);
     localStorage.removeItem('active_worker_session');
   };
+
+  // Inactivity automatic logout (1 minute)
+  const handleInactivityLogout = () => {
+    if (currentUser) {
+      SupabaseService.logAudit(currentUser.name, 'Cerró Sesión por Inactividad', `Desconexión automática de la sesión por inactividad tras 1 minuto.`);
+    }
+    setCurrentUser(null);
+    localStorage.removeItem('active_worker_session');
+  };
+
+  const logoutRef = useRef(handleInactivityLogout);
+  useEffect(() => {
+    logoutRef.current = handleInactivityLogout;
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+
+    let timeoutId: NodeJS.Timeout;
+
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        logoutRef.current();
+      }, 60000); // 1 minute without activity
+    };
+
+    resetTimer();
+
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+    events.forEach(eventName => {
+      window.addEventListener(eventName, resetTimer);
+    });
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      events.forEach(eventName => {
+        window.removeEventListener(eventName, resetTimer);
+      });
+    };
+  }, [!!currentUser]);
 
   // Orders managers Confirm / Cancel despachos
   const handleProcessOrder = async (orderId: string, action: 'confirmado' | 'cancelado') => {
