@@ -4,10 +4,11 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Product, Worker, Order, AuditLog, SecurityAlert, ShopSettings, UserRole, ProductCategory, SupportInquiry } from '../types';
+import { Product, Worker, Order, AuditLog, SecurityAlert, ShopSettings, UserRole, ProductCategory, SupportInquiry, VisitorHistoryEntry } from '../types';
 import { SupabaseService } from '../supabaseService';
-import { formatCurrency } from '../utils';
+import { formatCurrency, hashSHA256 } from '../utils';
 import SupabaseGuide from './SupabaseGuide';
+import Storefront from './Storefront';
 import { 
   Users, ShoppingBag, ClipboardList, Settings, ShieldAlert, 
   TrendingUp, ArrowLeft, LogOut, Check, X, ShieldCheck, 
@@ -21,7 +22,17 @@ interface AdminPanelProps {
 
 export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelProps) {
   // Session State
-  const [currentUser, setCurrentUser] = useState<Worker | null>(null);
+  const [currentUser, setCurrentUser] = useState<Worker | null>(() => {
+    const cached = localStorage.getItem('active_worker_session');
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
   const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -35,6 +46,36 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   const [pwdResetSuccess, setPwdResetSuccess] = useState(false);
   const [isResetLoading, setIsResetLoading] = useState(false);
 
+  // Password Recovery / Forgot Password States
+  const [isRecovering, setIsRecovering] = useState(false);
+  const [recoveryUsername, setRecoveryUsername] = useState('');
+  const [recoveryPinInput, setRecoveryPinInput] = useState('');
+  const [recoveryNewPassword, setRecoveryNewPassword] = useState('');
+  const [recoveryConfirmPassword, setRecoveryConfirmPassword] = useState('');
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [recoverySuccess, setRecoverySuccess] = useState(false);
+  const [isRecoveryLoading, setIsRecoveryLoading] = useState(false);
+
+  // Shop Settings Draft State for live preview ("Tienda de Prueba")
+  const [draftSettings, setDraftSettings] = useState<ShopSettings | null>(() => {
+    const cached = localStorage.getItem('shop_settings_draft');
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
+
+  // Safe changes apply confirm states (Publish Draft with Admin Password check)
+  const [isSaveConfirmOpen, setIsSaveConfirmOpen] = useState(false);
+  const [confirmAdminPassword, setConfirmAdminPassword] = useState('');
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [confirmSuccess, setConfirmSuccess] = useState(false);
+  const [isConfirmLoading, setIsConfirmLoading] = useState(false);
+
   // Database Resources States
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -46,6 +87,12 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   // New States: Categories, Support tickets, Active Clients
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [supportInquiries, setSupportInquiries] = useState<SupportInquiry[]>([]);
+  
+  // Visitor Tracking states
+  const [visitorHistory, setVisitorHistory] = useState<VisitorHistoryEntry[]>([]);
+  const [selectedIpHistory, setSelectedIpHistory] = useState<string | null>(null);
+  const [isIpHistoryModalOpen, setIsIpHistoryModalOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   // Category CRUD states
   const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
@@ -92,6 +139,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       const sets = await SupabaseService.getSettings();
       const cats = await SupabaseService.getCategories();
       const sups = await SupabaseService.getSupportInquiries();
+      const vis = await SupabaseService.getVisitorHistory();
 
       setProducts(prodList);
       setOrders(ords);
@@ -99,8 +147,18 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       setAuditLogs(audits);
       setAlerts(alrts);
       setSettings(sets);
+      if (sets) {
+        setDraftSettings(prev => {
+          if (!prev) {
+            localStorage.setItem('shop_settings_draft', JSON.stringify(sets));
+            return JSON.parse(JSON.stringify(sets));
+          }
+          return prev;
+        });
+      }
       setCategories(cats);
       setSupportInquiries(sups);
+      setVisitorHistory(vis);
     } catch (e) {
       console.error('Error loading admin panel resource pools:', e);
     }
@@ -109,6 +167,13 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   useEffect(() => {
     if (currentUser) {
       loadDatabaseData();
+      
+      // Keep live/visitors and alerts freshly updated every 15 seconds
+      const interval = setInterval(() => {
+        loadDatabaseData();
+      }, 15000);
+      
+      return () => clearInterval(interval);
     }
   }, [currentUser]);
 
@@ -149,6 +214,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
           return;
         }
         setCurrentUser(response.worker);
+        localStorage.setItem('active_worker_session', JSON.stringify(response.worker));
         setUsernameInput('');
         setPasswordInput('');
         // Push initial routing based on role
@@ -235,12 +301,127 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     }
   };
 
+  // Submit Password Recovery by Security PIN
+  const handlePasswordRecoverySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoveryError(null);
+    setRecoverySuccess(false);
+
+    if (!recoveryUsername.trim() || !recoveryPinInput.trim() || !recoveryNewPassword.trim() || !recoveryConfirmPassword.trim()) {
+      setRecoveryError('Por favor complete todos los campos.');
+      return;
+    }
+
+    if (recoveryNewPassword !== recoveryConfirmPassword) {
+      setRecoveryError('Las contraseñas no coinciden.');
+      return;
+    }
+
+    if (recoveryNewPassword.length < 6) {
+      setRecoveryError('La contraseña debe tener mínimo 6 caracteres.');
+      return;
+    }
+
+    const hasLetter = /[a-zA-Z]/.test(recoveryNewPassword);
+    const hasNumber = /\d/.test(recoveryNewPassword);
+    const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(recoveryNewPassword);
+
+    if (!hasLetter || !hasNumber || !hasSpecial) {
+      setRecoveryError('La contraseña debe contener letras, números y al menos un carácter especial (ej: !, @, #, $, %, +/-...).');
+      return;
+    }
+
+    setIsRecoveryLoading(true);
+
+    try {
+      // Fetch fresh list of workers
+      const allWorkers = await SupabaseService.getWorkers();
+      const matched = allWorkers.find(w => w.username.toLowerCase() === recoveryUsername.trim().toLowerCase());
+
+      if (!matched) {
+        // Safe generic error to prevent username enumeration feedback
+        setRecoveryError('El usuario o PIN de seguridad es incorrecto.');
+        setIsRecoveryLoading(false);
+        return;
+      }
+
+      // Check PIN
+      if (matched.security_pin !== recoveryPinInput.trim()) {
+        // Brute-force protection: update failed attempts for username if needed
+        matched.failed_attempts += 1;
+        if (matched.failed_attempts >= 3) {
+          const blockUntil = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // Lock for 5 min
+          matched.locked_until = blockUntil;
+          await SupabaseService.saveWorker(matched);
+          await SupabaseService.triggerAlert(
+            'bloqueo_usuario',
+            'high',
+            `El usuario de acceso "${matched.username}" ha sido bloqueado temporalmente por 5 minutos tras 3 intentos fallidos de recuperación.`
+          );
+          setRecoveryError('Usuario bloqueado por exceso de intentos fallidos. Espere 5 minutos.');
+        } else {
+          await SupabaseService.saveWorker(matched);
+          setRecoveryError('El usuario o PIN de seguridad es incorrecto.');
+        }
+        setIsRecoveryLoading(false);
+        return;
+      }
+
+      // PIN is correct! Let's check lock status
+      if (matched.locked_until) {
+        const lockTime = new Date(matched.locked_until);
+        if (lockTime > new Date()) {
+          setRecoveryError(`Su usuario está suspendido temporalmente. Intente nuevamente después de las: ${lockTime.toLocaleTimeString()}`);
+          setIsRecoveryLoading(false);
+          return;
+        }
+      }
+
+      // PIN match & not locked! Update passport
+      const updatedWorker = {
+        ...matched,
+        failed_attempts: 0,
+        locked_until: null,
+        must_reset_password: false // Successfully reset!
+      };
+
+      await SupabaseService.saveWorker(updatedWorker, recoveryNewPassword);
+
+      await SupabaseService.logAudit(
+        updatedWorker.name,
+        'Recuperación de Clave exitosa',
+        `Restableció su contraseña con éxito mediante el PIN de seguridad de 6 dígitos.`
+      );
+
+      await SupabaseService.triggerAlert(
+        'bloqueo_usuario',
+        'medium',
+        `El colaborador "${updatedWorker.name}" (${updatedWorker.username}) recuperó su acceso usando PIN.`
+      );
+
+      setRecoverySuccess(true);
+      setTimeout(() => {
+        setIsRecovering(false);
+        setRecoverySuccess(false);
+        setUsernameInput(updatedWorker.username);
+        setPasswordInput('');
+      }, 2500);
+
+    } catch (err) {
+      console.error('Error recovering password:', err);
+      setRecoveryError('Error procesando la solicitud de recuperación. Reintente.');
+    } finally {
+      setIsRecoveryLoading(false);
+    }
+  };
+
   // Logouts
   const handleLogout = () => {
     if (currentUser) {
       SupabaseService.logAudit(currentUser.name, 'Cerró Sesión', `Sesión finalizada de rol ${currentUser.role}`);
     }
     setCurrentUser(null);
+    localStorage.removeItem('active_worker_session');
   };
 
   // Orders managers Confirm / Cancel despachos
@@ -476,16 +657,61 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     }
   };
 
-  // Global settings save
+  // Save settings draft to localStorage
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!settings || !currentUser) return;
+    if (!draftSettings || !currentUser) return;
     try {
-      await SupabaseService.saveSettings(settings, currentUser.name);
-      alert('Ajustes globales actualizados.');
-      await loadDatabaseData();
+      localStorage.setItem('shop_settings_draft', JSON.stringify(draftSettings));
+      alert('¡Borrador de Ajustes guardado localmente! Ahora puedes ir a la pestaña "Tienda de Prueba" para visualizar y probar todos los cambios de temas, fuentes, colores y monedas antes de aplicarlos comercialmente.');
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  // Publish Settings Draft officially with Admin password check
+  const handlePublishDraft = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!draftSettings || !currentUser) return;
+    if (!confirmAdminPassword.trim()) {
+      setConfirmError('Por favor introduzca el password de administrador.');
+      return;
+    }
+
+    setConfirmError(null);
+    setConfirmSuccess(false);
+    setIsConfirmLoading(true);
+
+    try {
+      // Validate credentials using login mechanism
+      const loginRes = await SupabaseService.login(currentUser.username, confirmAdminPassword);
+      if (!loginRes.success) {
+        setConfirmError(loginRes.error || 'Contraseña incorrecta. Acción para publicar denegada.');
+        setIsConfirmLoading(false);
+        return;
+      }
+
+      // If success, save settings to database
+      await SupabaseService.saveSettings(draftSettings, currentUser.name);
+      
+      setConfirmSuccess(true);
+      setSettings(draftSettings); // Update live view
+      
+      // Sync DB
+      await loadDatabaseData();
+      
+      setTimeout(() => {
+        setIsSaveConfirmOpen(false);
+        setConfirmAdminPassword('');
+        setConfirmSuccess(false);
+        alert('🎉 ¡Los cambios se han aplicado y publicado exitosamente en la tienda comercial en vivo!');
+      }, 1500);
+
+    } catch (err: any) {
+      console.error(err);
+      setConfirmError('Error interno al guardar los cambios: ' + (err.message || err));
+    } finally {
+      setIsConfirmLoading(false);
     }
   };
 
@@ -513,6 +739,55 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   const statsTotalPending = orders.filter(o => o.status === 'pendiente').length;
   const statsLowStockCount = products.filter(p => p.stock <= 5).length;
   const statsPendingAlerts = alerts.filter(a => !a.resolved).length;
+
+  // Real-time group by IP calculation for the visitor monitoring tab
+  interface GroupedVisitor {
+    ip: string;
+    totalVisits: number;
+    lastVisit: Date;
+    lastPage: string;
+    browser: string;
+    os: string;
+    country: string;
+    city: string;
+    allVisits: VisitorHistoryEntry[];
+  }
+
+  const groupedVisitors = React.useMemo(() => {
+    const groups: { [key: string]: GroupedVisitor } = {};
+    
+    (visitorHistory || []).forEach((v) => {
+      const ip = v.ip || '127.0.0.1';
+      const timestampDate = new Date(v.timestamp);
+      
+      if (!groups[ip]) {
+        groups[ip] = {
+          ip,
+          totalVisits: 1,
+          lastVisit: timestampDate,
+          lastPage: v.page_visited || 'Navegando',
+          browser: v.browser || 'Browser',
+          os: v.os || 'OS',
+          country: v.country || 'Cuba',
+          city: v.city || 'La Habana',
+          allVisits: [v]
+        };
+      } else {
+        groups[ip].totalVisits += 1;
+        groups[ip].allVisits.push(v);
+        if (timestampDate > groups[ip].lastVisit) {
+          groups[ip].lastVisit = timestampDate;
+          groups[ip].lastPage = v.page_visited || 'Navegando';
+          groups[ip].browser = v.browser || groups[ip].browser;
+          groups[ip].os = v.os || groups[ip].os;
+          groups[ip].country = v.country || groups[ip].country;
+          groups[ip].city = v.city || groups[ip].city;
+        }
+      }
+    });
+
+    return Object.values(groups).sort((a, b) => b.lastVisit.getTime() - a.lastVisit.getTime());
+  }, [visitorHistory]);
 
   return (
     <div className="fixed inset-0 z-50 bg-[#F8F9FA] text-slate-800 flex flex-col md:flex-row overflow-hidden font-sans">
@@ -616,6 +891,99 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   </div>
                 </form>
               </div>
+            ) : isRecovering ? (
+              /* Custom Recovery PIN Box */
+              <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-xl">
+                <div className="mb-4">
+                  <span className="text-[9px] bg-teal-500/10 text-teal-400 font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border border-teal-500/20">
+                    Recuperación Autogestionada
+                  </span>
+                  <p className="text-xs text-slate-400 mt-2.5">
+                    Introduce tu usuario de acceso y el PIN de seguridad de 6 dígitos que te asignaron para elegir una nueva contraseña confidencial.
+                  </p>
+                </div>
+
+                {recoveryError && (
+                  <div className="mb-4 p-3.5 bg-red-950/60 border border-red-800/60 text-red-400 text-xs rounded-xl font-medium flex items-start gap-2.5">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{recoveryError}</span>
+                  </div>
+                )}
+
+                {recoverySuccess && (
+                  <div className="mb-4 p-3.5 bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs rounded-xl font-medium">
+                    ✔ Contraseña restablecida exitosamente. Redirigiendo en segundos...
+                  </div>
+                )}
+
+                <form onSubmit={handlePasswordRecoverySubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-widest mb-1.5">Nombre de Usuario de Acceso</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ej: admin, gerente, empleado"
+                      value={recoveryUsername}
+                      onChange={(e) => setRecoveryUsername(e.target.value)}
+                      className="w-full text-xs p-3 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 text-slate-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-widest mb-1.5">PIN de Seguridad (6 dígitos)</label>
+                    <input
+                      type="password"
+                      required
+                      maxLength={6}
+                      placeholder="Escribe tu PIN secreto"
+                      value={recoveryPinInput}
+                      onChange={(e) => setRecoveryPinInput(e.target.value.replace(/\D/g, ''))} // only digits
+                      className="w-full text-xs p-3 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono tracking-widest"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-widest mb-1.5">Nueva Contraseña</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Mínimo 6 caracteres con letras, números y símbolos"
+                      value={recoveryNewPassword}
+                      onChange={(e) => setRecoveryNewPassword(e.target.value)}
+                      className="w-full text-xs p-3 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-widest mb-1.5">Confirmar Nueva Contraseña</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Repita la clave para validar"
+                      value={recoveryConfirmPassword}
+                      onChange={(e) => setRecoveryConfirmPassword(e.target.value)}
+                      className="w-full text-xs p-3 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500"
+                    />
+                  </div>
+
+                  <div className="flex gap-2.5 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsRecovering(false)}
+                      className="w-1/3 bg-slate-950 hover:bg-slate-900 text-slate-400 hover:text-white font-bold text-xs p-3.5 rounded-xl border border-slate-800 cursor-pointer text-center"
+                    >
+                      Regresar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isRecoveryLoading || recoverySuccess}
+                      className="w-2/3 bg-teal-500 hover:bg-teal-600 text-slate-950 font-bold text-xs p-3.5 rounded-xl transition-all shadow-md shadow-teal-500/10 flex items-center justify-center gap-2 cursor-pointer disabled:bg-slate-850 disabled:text-slate-500"
+                    >
+                      {isRecoveryLoading ? 'Procesando...' : 'Reescribir Clave'}
+                    </button>
+                  </div>
+                </form>
+              </div>
             ) : (
               /* Form Box */
               <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-xl">
@@ -649,15 +1017,33 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-widest mb-1.5">Contraseña de Colaborador</label>
+                    <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-widest mb-1.5 font-sans">Contraseña de Colaborador</label>
                     <input
                       type="password"
                       required
                       placeholder="Contraseña de fábrica"
                       value={passwordInput}
                       onChange={(e) => setPasswordInput(e.target.value)}
-                      className="w-full text-xs p-3 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500"
+                      className="w-full text-xs p-3 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono"
                     />
+                  </div>
+
+                  <div className="flex justify-end pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRecovering(true);
+                        setRecoveryUsername('');
+                        setRecoveryPinInput('');
+                        setRecoveryNewPassword('');
+                        setRecoveryConfirmPassword('');
+                        setRecoveryError(null);
+                        setRecoverySuccess(false);
+                      }}
+                      className="text-[11px] text-teal-400 hover:text-teal-300 hover:underline cursor-pointer font-semibold"
+                    >
+                      ¿Olvidaste tu contraseña?
+                    </button>
                   </div>
 
                   <button
@@ -683,8 +1069,43 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
         
         // 2. ACTIVE PANEL DASHBOARD LAYOUT
         <>
-          {/* Navigation drawer (Left Sidebar) */}
-          <aside className="w-full md:w-64 bg-slate-950 text-slate-300 flex flex-col justify-between shrink-0 border-b md:border-b-0 md:border-r border-slate-800">
+          {/* Mobile Top Bar (Only visible on mobile screens) */}
+          <div className="md:hidden bg-slate-950 text-white flex items-center justify-between p-4 sticky top-0 z-40 border-b border-slate-800 shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 bg-teal-500 rounded-lg flex items-center justify-center text-slate-950 font-extrabold text-xs">
+                CP
+              </div>
+              <div>
+                <h3 className="font-bold text-xs text-white truncate max-w-[120px]">{currentUser.name}</h3>
+                <span className="text-[9px] text-teal-400 font-bold block uppercase tracking-wider">
+                  {activeTab === 'visitantes' ? '👀 Visitantes' : activeTab}
+                </span>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setIsMobileMenuOpen(true)}
+                className="bg-slate-900 hover:bg-slate-800 active:scale-95 border border-slate-800 text-teal-400 text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>Menú ☰</span>
+              </button>
+              <button 
+                onClick={onClose}
+                className="p-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-400 hover:text-white"
+                title="Volver a la Tienda"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Navigation drawer (Left Sidebar on desktop, overlay modal on mobile) */}
+          <aside className={`${
+            isMobileMenuOpen 
+              ? "fixed inset-0 z-50 flex flex-col bg-slate-950 text-slate-300 p-6 overflow-y-auto w-full h-full" 
+              : "hidden md:flex md:w-64 bg-slate-950 text-slate-300 flex-col justify-between shrink-0 md:border-r border-slate-800"
+          }`}>
             <div>
               {/* Header inside admin */}
               <div className="p-5 border-b border-slate-800 flex items-center justify-between">
@@ -700,14 +1121,25 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   </div>
                 </div>
                 
-                {/* Back to store */}
-                <button 
-                  onClick={onClose}
-                  title="Volver a Tienda"
-                  className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-900 cursor-pointer md:hidden"
-                >
-                  <ArrowLeft className="w-5 h-5" />
-                </button>
+                {/* Close Button / Back to store */}
+                {isMobileMenuOpen ? (
+                  <button 
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-300 hover:text-white cursor-pointer flex items-center gap-1"
+                    title="Cerrar Menú"
+                  >
+                    <X className="w-4 h-4 text-red-400" />
+                    <span className="text-[10px] uppercase font-bold text-red-400">Cerrar</span>
+                  </button>
+                ) : (
+                  <button 
+                    onClick={onClose}
+                    title="Volver a Tienda"
+                    className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-900 cursor-pointer md:hidden"
+                  >
+                    <ArrowLeft className="w-5 h-5" />
+                  </button>
+                )}
               </div>
 
               {/* Navigation Tabs based on role mapping */}
@@ -716,7 +1148,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                 {/* Dashboard: Admin & Gerente only */}
                 {!isEmployee && (
                   <button
-                    onClick={() => setActiveTab('dashboard')}
+                    onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
                     className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
                       activeTab === 'dashboard' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
                     }`}
@@ -726,9 +1158,25 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   </button>
                 )}
 
+                {/* Visitantes - NUEVO TAB REALTIME: All staff roles */}
+                <button
+                  onClick={() => { setActiveTab('visitantes'); setIsMobileMenuOpen(false); }}
+                  className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
+                    activeTab === 'visitantes' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-950'
+                  }`}
+                >
+                  <Eye className="w-4 h-4" />
+                  <div className="flex-1 flex items-center justify-between">
+                    <span>Monitoreo de Visitantes</span>
+                    <span className="bg-teal-950 text-teal-400 border border-teal-500/25 text-[8px] px-1.5 py-0.5 rounded-full font-black animate-pulse">
+                      VIVO
+                    </span>
+                  </div>
+                </button>
+
                 {/* Live orders: All roles */}
                 <button
-                  onClick={() => setActiveTab('pedidos')}
+                  onClick={() => { setActiveTab('pedidos'); setIsMobileMenuOpen(false); }}
                   className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
                     activeTab === 'pedidos' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
                   }`}
@@ -746,7 +1194,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
 
                 {/* Order History: All roles */}
                 <button
-                  onClick={() => setActiveTab('historial')}
+                  onClick={() => { setActiveTab('historial'); setIsMobileMenuOpen(false); }}
                   className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
                     activeTab === 'historial' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
                   }`}
@@ -757,7 +1205,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
 
                 {/* Products Inventory: All roles (Employee update/create, but others can read/view too) */}
                 <button
-                  onClick={() => setActiveTab('inventario')}
+                  onClick={() => { setActiveTab('inventario'); setIsMobileMenuOpen(false); }}
                   className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
                     activeTab === 'inventario' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
                   }`}
@@ -769,7 +1217,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                 {/* Workers CRUD: Admin only */}
                 {isAdmin && (
                   <button
-                    onClick={() => setActiveTab('trabajadores')}
+                    onClick={() => { setActiveTab('trabajadores'); setIsMobileMenuOpen(false); }}
                     className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
                       activeTab === 'trabajadores' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
                     }`}
@@ -782,7 +1230,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                 {/* Security Alerts: Admin & Gerente only */}
                 {!isEmployee && (
                   <button
-                    onClick={() => setActiveTab('alertas')}
+                    onClick={() => { setActiveTab('alertas'); setIsMobileMenuOpen(false); }}
                     className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer relative ${
                       activeTab === 'alertas' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900 text-slate-300'
                     }`}
@@ -802,7 +1250,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                 {/* Audit Logs: Admin only */}
                 {isAdmin && (
                   <button
-                    onClick={() => setActiveTab('auditoria')}
+                    onClick={() => { setActiveTab('auditoria'); setIsMobileMenuOpen(false); }}
                     className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
                       activeTab === 'auditoria' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
                     }`}
@@ -814,21 +1262,33 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
 
                 {/* Global Settings: Admin only */}
                 {isAdmin && (
-                  <button
-                    onClick={() => setActiveTab('ajustes')}
-                    className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
-                      activeTab === 'ajustes' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
-                    }`}
-                  >
-                    <Settings className="w-4 h-4" />
-                    <span>Ajustes de Tienda</span>
-                  </button>
+                  <>
+                    <button
+                      onClick={() => { setActiveTab('ajustes'); setIsMobileMenuOpen(false); }}
+                      className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
+                        activeTab === 'ajustes' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
+                      }`}
+                    >
+                      <Settings className="w-4 h-4" />
+                      <span>⚙️ SETTING Tienda</span>
+                    </button>
+
+                    <button
+                      onClick={() => { setActiveTab('tienda_prueba'); setIsMobileMenuOpen(false); }}
+                      className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
+                        activeTab === 'tienda_prueba' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
+                      }`}
+                    >
+                      <Eye className="w-4 h-4" />
+                      <span>🧪 Tienda de Prueba</span>
+                    </button>
+                  </>
                 )}
 
                 {/* Soporte / Reclamos: Visible to all staff roles, but clear-log is admin guarded */}
                 <button
                   type="button"
-                  onClick={() => setActiveTab('support')}
+                  onClick={() => { setActiveTab('support'); setIsMobileMenuOpen(false); }}
                   className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
                     activeTab === 'support' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
                   }`}
@@ -846,7 +1306,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
 
                 {/* Database manual SQL / Realtime keys: All roles can inspect instructions */}
                 <button
-                  onClick={() => setActiveTab('database')}
+                  onClick={() => { setActiveTab('database'); setIsMobileMenuOpen(false); }}
                   className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
                     activeTab === 'database' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
                   }`}
@@ -859,6 +1319,16 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
 
             {/* Logout bottom area */}
             <div className="p-4 border-t border-slate-900 space-y-2">
+              {isMobileMenuOpen && (
+                <button 
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="w-full text-xs font-bold text-red-400 hover:text-white bg-slate-900 hover:bg-slate-800 p-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer border border-red-950/40"
+                >
+                  <X className="w-4 h-4" />
+                  <span>Atrás / Volver al Panel</span>
+                </button>
+              )}
+
               <button 
                 onClick={onClose}
                 className="w-full text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-900 p-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer"
@@ -1626,155 +2096,656 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
             )}
 
             {/* =========================================================
-                TAB 8. GLOBAL SITE CONFIGURATION (ADMIN ONLY)
+                TAB 8. GLOBAL SITE CONFIGURATION (ADMIN ONLY) - EDITS DRAFT
                 ========================================================= */}
-            {activeTab === 'ajustes' && isAdmin && settings && (
-              <div className="max-w-2xl space-y-6 animate-fade-in">
+            {activeTab === 'ajustes' && isAdmin && draftSettings && (
+              <div className="max-w-3xl space-y-6 animate-fade-in pb-12">
                 <div className="border-b border-gray-200 pb-5">
-                  <h2 className="text-xl font-bold tracking-tight text-slate-900">Ajustes Generales de la Tienda</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Controla y personaliza las firmas, horarios de atención, números de contacto y despacho.</p>
+                  <h2 className="text-xl font-black tracking-tight text-slate-900">⚙️ SETTING Tienda (Borrador)</h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Modifica el estilo, logotipo, colores, eslóganes, banners y monedas de la boutique en tiempo real. 
+                    Guarda los cambios como borrador para experimentarlos en la <strong className="text-teal-600">🧪 Tienda de Prueba</strong> antes de aplicarlos.
+                  </p>
                 </div>
 
-                <form onSubmit={handleSaveSettings} className="bg-white rounded-2xl border border-gray-200/60 p-6 space-y-4 shadow-sm text-xs">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <form onSubmit={handleSaveSettings} className="space-y-6">
+                  
+                  {/* CARD 1: Identidad Básica */}
+                  <div className="bg-white rounded-2xl border border-gray-200/60 p-6 space-y-4 shadow-sm text-xs">
+                    <h3 className="font-extrabold text-sm text-slate-800 tracking-tight border-b border-gray-100 pb-2">📂 Información Comercial Básica</h3>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Nombre Comercial de la Tienda</label>
+                        <input
+                          type="text"
+                          required
+                          value={draftSettings.shop_name || ''}
+                          onChange={(e) => setDraftSettings({ ...draftSettings, shop_name: e.target.value })}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Descripción / Eslogan Comercial</label>
+                        <input
+                          type="text"
+                          required
+                          value={draftSettings.shop_description || ''}
+                          onChange={(e) => setDraftSettings({ ...draftSettings, shop_description: e.target.value })}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Teléfono Público de Soporte</label>
+                        <input
+                          type="text"
+                          required
+                          value={draftSettings.contact_number || ''}
+                          onChange={(e) => setDraftSettings({ ...draftSettings, contact_number: e.target.value })}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">WhatsApp para Ticket de Compra</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Sin el + ej: 34600000000"
+                          value={draftSettings.whatsapp_number || ''}
+                          onChange={(e) => setDraftSettings({ ...draftSettings, whatsapp_number: e.target.value })}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
+                        />
+                        <span className="text-[9px] text-slate-400 block mt-1">Formato internacional sin el símbolo "+" ni espacios intermedios.</span>
+                      </div>
+                    </div>
+
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Nombre Comercial de la Tienda</label>
+                      <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Dirección Física del Establecimiento</label>
                       <input
                         type="text"
                         required
-                        value={settings.shop_name}
-                        onChange={(e) => setSettings({ ...settings, shop_name: e.target.value })}
+                        value={draftSettings.address || ''}
+                        onChange={(e) => setDraftSettings({ ...draftSettings, address: e.target.value })}
                         className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
                       />
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Símbolo de Divisa Precedente</label>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Horarios de Atención</label>
+                        <input
+                          type="text"
+                          required
+                          value={draftSettings.business_hours || ''}
+                          onChange={(e) => setDraftSettings({ ...draftSettings, business_hours: e.target.value })}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Texto del Buscador Inteligente</label>
+                        <input
+                          type="text"
+                          required
+                          value={draftSettings.smart_search_text || ''}
+                          onChange={(e) => setDraftSettings({ ...draftSettings, smart_search_text: e.target.value })}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* CARD 2: Control Visual del Logotipo o Icono Custom */}
+                  <div className="bg-white rounded-2xl border border-gray-200/60 p-6 space-y-4 shadow-sm text-xs">
+                    <h3 className="font-extrabold text-sm text-slate-800 tracking-tight border-b border-gray-100 pb-2">🎨 Logotipo del Negocio Personalizado</h3>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Tipo de Logotipo</label>
+                        <select
+                          value={draftSettings.shop_logo_type || 'text'}
+                          onChange={(e) => setDraftSettings({ ...draftSettings, shop_logo_type: e.target.value as any })}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+                        >
+                          <option value="text">Texto / Letra Inicial</option>
+                          <option value="image">Imagen / URL Externa</option>
+                        </select>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                          {draftSettings.shop_logo_type === 'image' ? 'URL de imagen de logo' : 'Iniciales de Logo (Max 3 letras)'}
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={draftSettings.shop_logo_val || ''}
+                          onChange={(e) => setDraftSettings({ ...draftSettings, shop_logo_val: e.target.value })}
+                          placeholder={draftSettings.shop_logo_type === 'image' ? 'https://ejemplo.com/logo.png' : 'Ej: MIN'}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* CARD 3: Estilo Visual, Fondos y Tipografías */}
+                  <div className="bg-white rounded-2xl border border-gray-200/60 p-6 space-y-4 shadow-sm text-xs">
+                    <h3 className="font-extrabold text-sm text-slate-800 tracking-tight border-b border-gray-100 pb-2">🎨 Tematización Estética de la Tienda</h3>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Preajuste De Tema Oficial</label>
+                        <select
+                          value={draftSettings.theme_preset || 'classic'}
+                          onChange={(e) => setDraftSettings({ ...draftSettings, theme_preset: e.target.value as any })}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+                        >
+                          <option value="classic">Clásico Claro (Off-white / Slate)</option>
+                          <option value="dark">Oscuro Carbón (Deep Slate / Dark-Grey)</option>
+                          <option value="emerald">Sostenible Orgánico (Emerald / Sage-White)</option>
+                          <option value="retro">Brutall Retro Papel (Sepia / Yellow-Paper)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Familia Tipográfica Integrada</label>
+                        <select
+                          value={draftSettings.font_family || 'Inter'}
+                          onChange={(e) => setDraftSettings({ ...draftSettings, font_family: e.target.value as any })}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+                        >
+                          <option value="Inter">Inter (Estilo Moderno Suizo)</option>
+                          <option value="Space Grotesk">Space Grotesk (Fuerza Tecnológica)</option>
+                          <option value="JetBrains Mono">JetBrains Mono (Ingenieril Brutalista)</option>
+                          <option value="Playfair Display">Playfair Display (Editorial Lujoso Elegante)</option>
+                          <option value="Outfit">Outfit (Geometría Amigable)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* CARD 4: Control de Monedas */}
+                  <div className="bg-white rounded-2xl border border-gray-200/60 p-6 space-y-4 shadow-sm text-xs">
+                    <h3 className="font-extrabold text-sm text-slate-800 tracking-tight border-b border-gray-100 pb-2">🪙 Control de Monedas Permitidas</h3>
+                    <p className="text-[10px] text-slate-400">Los administradores y gerentes pueden habilitar o eliminar tipos de divisas para productos comerciales en la tienda.</p>
+                    
+                    <div className="flex flex-wrap gap-2 py-2 border-b border-gray-100">
+                      {(draftSettings.currencies || ['USD', 'CUP', 'MLC', 'EUR']).map((curr) => {
+                        const isMain = curr === draftSettings.currency;
+                        return (
+                          <div key={curr} className="bg-slate-100 border border-gray-200 rounded-lg px-3 py-1.5 flex items-center gap-2 select-none font-sans font-bold">
+                            <span className="text-slate-800 text-[11px] font-bold">{curr}</span>
+                            {(draftSettings.currencies || ['USD', 'CUP', 'MLC', 'EUR']).length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const filtered = (draftSettings.currencies || ['USD', 'CUP', 'MLC', 'EUR']).filter(c => c !== curr);
+                                  setDraftSettings({ ...draftSettings, currencies: filtered });
+                                }}
+                                className="text-red-500 hover:text-red-700 text-xs font-black cursor-pointer bg-white w-4 h-4 rounded-full flex items-center justify-center border border-gray-200 shadow-sm"
+                                title={`Deshabilitar ${curr}`}
+                              >
+                                &times;
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2">
                       <input
                         type="text"
-                        required
-                        placeholder="Ej: €, $, Q"
-                        value={settings.currency}
-                        onChange={(e) => setSettings({ ...settings, currency: e.target.value })}
-                        className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
+                        id="newCurrInput"
+                        placeholder="Nueva Divisa ej: GBP, CAD"
+                        maxLength={5}
+                        className="p-2 border border-gray-200 rounded-lg text-xs w-48 uppercase font-bold text-slate-800 focus:outline-none"
                       />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const inp = document.getElementById('newCurrInput') as HTMLInputElement;
+                          if (inp && inp.value.trim()) {
+                            const val = inp.value.trim().toUpperCase();
+                            const currentList = draftSettings.currencies || ['USD', 'CUP', 'MLC', 'EUR'];
+                            if (currentList.includes(val)) {
+                              alert('Esta moneda ya se encuentra registrada.');
+                              return;
+                            }
+                            setDraftSettings({ ...draftSettings, currencies: [...currentList, val] });
+                            inp.value = '';
+                          }
+                        }}
+                        className="bg-teal-600 hover:bg-teal-700 text-white font-bold px-3 py-2 rounded-lg text-xs cursor-pointer transition-all"
+                      >
+                        ＋ Agregar Moneda
+                      </button>
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Descripción / Eslogan Comercial</label>
-                    <input
-                      type="text"
-                      required
-                      value={settings.shop_description}
-                      onChange={(e) => setSettings({ ...settings, shop_description: e.target.value })}
-                      className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Teléfono Público de Soporte</label>
+                  {/* CARD 5: Banner de Promociones */}
+                  <div className="bg-white rounded-2xl border border-gray-200/60 p-6 space-y-4 shadow-sm text-xs">
+                    <h3 className="font-extrabold text-sm text-slate-800 tracking-tight border-b border-gray-100 pb-2">📢 Banner de Notificaciones / Promociones</h3>
+                    
+                    <div className="flex items-center gap-3">
                       <input
-                        type="text"
-                        required
-                        value={settings.contact_number}
-                        onChange={(e) => setSettings({ ...settings, contact_number: e.target.value })}
-                        className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
+                        type="checkbox"
+                        id="bannerVis"
+                        checked={!!draftSettings.banner_visible}
+                        onChange={(e) => setDraftSettings({ ...draftSettings, banner_visible: e.target.checked })}
+                        className="w-4 h-4 text-teal-600 border-gray-300 rounded cursor-pointer"
                       />
+                      <label htmlFor="bannerVis" className="font-bold text-slate-700 cursor-pointer select-none">Mostrar Banner Superior Informativo en Tienda</label>
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">WhatsApp para Ticket de Compra</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Sin el + ej: 34600000000"
-                        value={settings.whatsapp_number}
-                        onChange={(e) => setSettings({ ...settings, whatsapp_number: e.target.value })}
-                        className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
-                      />
-                      <span className="text-[10px] text-slate-400 block mt-1">Formato internacional sin el símbolo "+" ni espacios intermedios.</span>
-                    </div>
+
+                    {draftSettings.banner_visible && (
+                      <div className="space-y-3 animate-fade-in">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Mensaje de Notificación</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Ej: 🎉 Envío gratuito a Cuba para pedidos superiores a 100 USD"
+                            value={draftSettings.banner_text || ''}
+                            onChange={(e) => setDraftSettings({ ...draftSettings, banner_text: e.target.value })}
+                            className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Color de Fondo del Banner</label>
+                            <input
+                              type="color"
+                              value={draftSettings.banner_bg || '#1E293B'}
+                              onChange={(e) => setDraftSettings({ ...draftSettings, banner_bg: e.target.value })}
+                              className="w-full h-10 p-1 bg-slate-50 border border-gray-200 rounded-lg cursor-pointer"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Color del Texto del Banner</label>
+                            <input
+                              type="color"
+                              value={draftSettings.banner_text_color || '#FFFFFF'}
+                              onChange={(e) => setDraftSettings({ ...draftSettings, banner_text_color: e.target.value })}
+                              className="w-full h-10 p-1 bg-slate-50 border border-gray-200 rounded-lg cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Dirección del Establecimiento</label>
-                    <input
-                      type="text"
-                      required
-                      value={settings.address}
-                      onChange={(e) => setSettings({ ...settings, address: e.target.value })}
-                      className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Horario Comercial de Atención</label>
-                    <input
-                      type="text"
-                      required
-                      value={settings.business_hours}
-                      onChange={(e) => setSettings({ ...settings, business_hours: e.target.value })}
-                      className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-gray-150 pt-3">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1 font-sans">Enlace / URL del Logo del Negocio</label>
-                      <input
-                        type="url"
-                        placeholder="https://..."
-                        value={settings.shop_logo_url || ''}
-                        onChange={(e) => setSettings({ ...settings, shop_logo_url: e.target.value })}
-                        className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1 font-sans">Texto del Buscador Inteligente</label>
-                      <input
-                        type="text"
-                        placeholder="Ej: Búsqueda Inteligente"
-                        value={settings.smart_search_text || ''}
-                        onChange={(e) => setSettings({ ...settings, smart_search_text: e.target.value })}
-                        className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-semibold"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="border-t border-gray-150 pb-2 space-y-3">
-                    <span className="block text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1 font-sans">Ventana "Sobre Nosotros" (About Panel)</span>
+                  {/* CARD 6: Presentación de la Tienda (About Modal) */}
+                  <div className="bg-white rounded-2xl border border-gray-200/60 p-6 space-y-4 shadow-sm text-xs">
+                    <h3 className="font-extrabold text-sm text-slate-800 tracking-tight border-b border-gray-100 pb-2">📍 Ventana "Sobre Nosotros" (About Panel)</h3>
+                    
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
                         id="aboutVisChk"
-                        checked={!!settings.about_visible}
-                        onChange={(e) => setSettings({ ...settings, about_visible: e.target.checked })}
-                        className="w-4 h-4 text-teal-600 focus:ring-teal-500 cursor-pointer"
+                        checked={!!draftSettings.about_visible}
+                        onChange={(e) => setDraftSettings({ ...draftSettings, about_visible: e.target.checked })}
+                        className="w-4 h-4 text-teal-600 border-gray-300 rounded cursor-pointer"
                       />
-                      <label htmlFor="aboutVisChk" className="font-semibold text-slate-700 text-[11px] select-none cursor-pointer">
-                        Mostrar en la tienda (Ícono al lado del carrito)
+                      <label htmlFor="aboutVisChk" className="font-bold text-slate-705 select-none cursor-pointer">
+                        Habilitar ícono informativo junto al Carrito
                       </label>
                     </div>
 
                     <div>
-                      <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Contenido de la ventana de Presentación</label>
+                      <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Historia comercial del negocio</label>
                       <textarea
                         rows={3}
                         placeholder="Escribe la historia o información del negocio comercial para tus clientes..."
-                        value={settings.about_text || ''}
-                        onChange={(e) => setSettings({ ...settings, about_text: e.target.value })}
+                        value={draftSettings.about_text || ''}
+                        onChange={(e) => setDraftSettings({ ...draftSettings, about_text: e.target.value })}
                         className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 leading-relaxed font-sans resize-none"
                       />
                     </div>
+
+                    {/* Google Maps Configuration */}
+                    <div className="border-t border-slate-100 pt-4 space-y-3">
+                      <h4 className="font-extrabold text-[10px] text-slate-800 uppercase tracking-wider">🗺️ Configuración de Google Maps (Ubicación de Tienda)</h4>
+                      
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Opción de Ubicación</label>
+                          <select
+                            value={draftSettings.maps_option || 'address'}
+                            onChange={(e) => setDraftSettings({ ...draftSettings, maps_option: e.target.value as 'address' | 'coords' | 'embed' })}
+                            className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer animate-fade-in"
+                          >
+                            <option value="address">Dirección Física Registrada (Usa campo Dirección arriba)</option>
+                            <option value="coords">Coordenadas Latitud y Longitud GPS precisas</option>
+                            <option value="embed">Código HTML Iframe o Link directo embebido</option>
+                          </select>
+                        </div>
+
+                        {draftSettings.maps_option === 'coords' && (
+                          <div className="animate-fade-in">
+                            <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Coordenadas (Latitud, Longitud)</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="Ej: 23.1136, -82.3666"
+                              value={draftSettings.maps_coords || ''}
+                              onChange={(e) => setDraftSettings({ ...draftSettings, maps_coords: e.target.value })}
+                              className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none font-mono focus:ring-1 focus:ring-teal-500"
+                            />
+                            <p className="text-[9px] text-slate-400 mt-1">Ingresa coordenadas exactas separadas por coma.</p>
+                          </div>
+                        )}
+
+                        {draftSettings.maps_option === 'embed' && (
+                          <div className="animate-fade-in col-span-1">
+                            <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Link de Iframe o Código HTML del Mapa</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="Ej: <iframe src='...' ...> o link src"
+                              value={draftSettings.maps_embed_url || ''}
+                              onChange={(e) => setDraftSettings({ ...draftSettings, maps_embed_url: e.target.value })}
+                              className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none font-mono focus:ring-1 focus:ring-teal-500"
+                            />
+                            <p className="text-[9px] text-slate-400 mt-1">Pega el link de Google Maps para insertar el mapa personalizado.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
-                  <button
-                    type="submit"
-                    className="bg-slate-950 hover:bg-slate-900 font-bold py-2.5 px-5 rounded-xl text-white shadow transition-all cursor-pointer"
-                  >
-                    Guardar Ajustes Estáticos
-                  </button>
+                  {/* CARD 7: Pantalla de Espera e Indicador de Carga */}
+                  <div className="bg-white rounded-2xl border border-gray-200/60 p-6 space-y-4 shadow-sm text-xs">
+                    <h3 className="font-extrabold text-sm text-slate-800 tracking-tight border-b border-gray-100 pb-2">⏳ Pantalla de Espera Informativa (Sincronización)</h3>
+                    <p className="text-[10px] text-slate-400">Modifica el mensaje formal que los clientes visualizan mientras la tienda establece conexión estable con la base de datos Supabase.</p>
+                    
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Mensaje en Pantalla de Actualización</label>
+                      <input
+                        type="text"
+                        required
+                        value={draftSettings.loading_text || ''}
+                        onChange={(e) => setDraftSettings({ ...draftSettings, loading_text: e.target.value })}
+                        placeholder="Usa un texto formal. Ej: Actualizando, por favor espere..."
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-sans font-medium"
+                      />
+                      <p className="text-[9px] text-teal-600 font-bold mt-1">Este mensaje se mostrará a pantalla completa durante la inicialización de la base de datos o consulta del catálogo local.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <button
+                      type="submit"
+                      className="bg-slate-950 hover:bg-slate-900 font-bold py-3 px-6 rounded-xl text-white shadow-lg transition-all cursor-pointer text-xs flex items-center gap-1.5 active:scale-98 animate-pulse"
+                    >
+                      <span>💾 Guardar Ajustes en Borrador</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('tienda_prueba');
+                      }}
+                      className="bg-teal-500 hover:bg-teal-450 font-bold py-3 px-6 rounded-xl text-slate-950 shadow-lg transition-all cursor-pointer text-xs flex items-center gap-1.5 active:scale-98"
+                    >
+                      <span>🧪 Ir a Tienda de Prueba</span>
+                    </button>
+                  </div>
                 </form>
+              </div>
+            )}
+
+            {/* =========================================================
+                TAB 10. SANDBOX "TIENDA DE PRUEBA" (ADMIN ONLY)
+                ========================================================= */}
+            {activeTab === 'tienda_prueba' && isAdmin && draftSettings && (
+              <div className="space-y-6 animate-fade-in pb-12">
+                <div className="bg-gradient-to-r from-teal-900 via-slate-900 to-slate-950 text-white rounded-2xl border border-teal-500/20 p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-6 shadow-xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/10 rounded-full blur-3xl"></div>
+                  <div className="space-y-1 z-10 font-sans">
+                    <div className="flex items-center gap-2">
+                      <span className="bg-teal-500 text-slate-950 text-[10px] uppercase font-black tracking-wider px-2 py-0.5 rounded-full animate-bounce">
+                        Entorno de Pruebas Activo
+                      </span>
+                    </div>
+                    <h2 className="text-xl font-extrabold tracking-tight">🧪 Tienda de Prueba (Sandbox)</h2>
+                    <p className="text-xs text-slate-400 max-w-xl font-medium leading-relaxed">
+                      Estás visualizando el simulador de la boutique aplicando tu borrador local de estilos, paletas, monedas y configuraciones.
+                      Estos cambios <strong className="text-amber-400">NO</strong> son visibles para los visitantes públicos hasta que los publiques formalmente.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-shrink-0 items-center gap-3 z-10 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('ajustes');
+                      }}
+                      className="bg-slate-850 hover:bg-slate-700 text-white font-bold py-2.5 px-4 rounded-xl border border-slate-700 transition-all cursor-pointer active:scale-95"
+                    >
+                      ✏️ Seguir Modificando Estilos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmAdminPassword('');
+                        setConfirmError(null);
+                        setConfirmSuccess(false);
+                        setIsSaveConfirmOpen(true);
+                      }}
+                      className="bg-emerald-500 hover:bg-emerald-450 text-slate-950 font-extrabold py-2.5 px-5 rounded-xl transition-all cursor-pointer shadow-lg shadow-emerald-500/10 flex items-center gap-1.5 active:scale-95 animate-pulse"
+                    >
+                      🚀 Aplicar Cambios Oficialmente
+                    </button>
+                  </div>
+                </div>
+
+                {/* Simulated Storefront Container with border indicator */}
+                <div className="border-4 border-dashed border-teal-500/40 rounded-3xl p-2 bg-slate-50 relative">
+                  <div className="absolute top-2 right-4 z-40 bg-teal-500 text-slate-950 text-[9px] font-black px-2.5 py-1 rounded-bl-xl tracking-wider uppercase shadow-sm">
+                    Modo Vista de Prueba
+                  </div>
+                  
+                  {/* Embedded Storefront */}
+                  <Storefront 
+                    previewSettings={draftSettings}
+                    onAdminOpen={() => {}}
+                    productsRefresher={0}
+                  />
+                </div>
+              </div>
+            )}
+            {activeTab === 'visitantes' && (
+              <div id="visitors-tab-panel" className="space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-200 pb-5">
+                  <div>
+                    <h2 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+                      <Eye className="w-5 h-5 text-teal-600 animate-pulse" />
+                      <span>Monitoreo de Visitantes en Tiempo Real</span>
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5 font-medium">
+                      Seguimiento de accesos a la tienda por dirección IP. Historial limitado a los últimos 60 días.
+                    </p>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={async () => {
+                        try {
+                          await loadDatabaseData();
+                        } catch (e) {}
+                      }}
+                      className="bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs px-3.5 py-2 rounded-xl border border-gray-200 shadow-sm flex items-center gap-1.5 cursor-pointer"
+                      title="Refrescar datos de visitas"
+                    >
+                      <span>🔄 Actualizar</span>
+                    </button>
+
+                    {isAdmin ? (
+                      <button
+                        onClick={async () => {
+                          if (window.confirm('¿Está completamente seguro de vaciar el historial de visitas? Esta acción es irreversible.')) {
+                            try {
+                              await SupabaseService.clearVisitorHistory();
+                              await loadDatabaseData();
+                              alert('Historial de visitantes vaciado correctamente.');
+                            } catch (e) {
+                              alert('Error al vaciar el historial.');
+                            }
+                          }
+                        }}
+                        className="bg-red-650 hover:bg-red-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-md cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Vaciar Historial (Admin)</span>
+                      </button>
+                    ) : (
+                      <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200/50 px-3 py-2 rounded-xl font-semibold">
+                        ⚠️ Modo Lectura (Gerente/Empleado - Solo Observación)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* VISITOR METRICS BENTO CARDS */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  {/* Card 1: Active Now */}
+                  <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-xs flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Activos Ahora (2m)</span>
+                      <strong className="text-3xl font-black text-emerald-600 mt-1 block flex items-baseline gap-2">
+                        {groupedVisitors.filter(gv => Date.now() - gv.lastVisit.getTime() < 120 * 1000).length}
+                        <span className="text-xs font-normal text-slate-500">IPs activas</span>
+                      </strong>
+                    </div>
+                    <div className="relative flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                    </div>
+                  </div>
+
+                  {/* Card 2: Unique IPs */}
+                  <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-xs">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Dispositivos Únicos (IPs)</span>
+                    <strong className="text-3xl font-black text-slate-900 mt-1 block">
+                      {groupedVisitors.length}
+                    </strong>
+                  </div>
+
+                  {/* Card 3: Total Logs */}
+                  <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-xs">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Eventos Registrados (Historial)</span>
+                    <strong className="text-3xl font-black text-teal-600 mt-1 block">
+                      {visitorHistory.length}
+                    </strong>
+                  </div>
+                </div>
+
+                {/* TABLE OF DISTINCT IPs */}
+                <div className="bg-white rounded-2xl border border-gray-150 shadow-sm overflow-hidden">
+                  <div className="p-5 border-b border-gray-100 bg-slate-50/50 flex items-center justify-between">
+                    <h3 className="font-bold text-xs text-slate-800 uppercase tracking-wider">Historial Agrupado por IP Única (Mismo IP se muestra una sola vez)</h3>
+                    <span className="text-[10px] text-slate-400 font-medium">Auto-limpieza de más de 60 días activa</span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    {groupedVisitors.length === 0 ? (
+                      <div className="text-center py-12">
+                        <span className="text-3xl">🏜️</span>
+                        <p className="text-sm font-bold text-slate-700 mt-3">Sin visitas todavía en la base de datos</p>
+                        <p className="text-xs text-slate-400">Espera que entren clientes para comenzar a registrar su recorrido.</p>
+                      </div>
+                    ) : (
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-100/60 text-slate-600 font-bold text-[10px] uppercase border-b border-gray-100">
+                            <th className="p-4 text-center">Estado</th>
+                            <th className="p-4">Dirección IP</th>
+                            <th className="p-4">Ciudad / Provincia / País</th>
+                            <th className="p-4">Dispositivo & SO</th>
+                            <th className="p-4 text-center">Cantidad de Visitas</th>
+                            <th className="p-4">Último Acceso (Fecha y Hora)</th>
+                            <th className="p-4">Última Página Vista / Acción</th>
+                            <th className="p-4 text-center">Historial</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 text-xs text-slate-700 font-semibold">
+                          {groupedVisitors.map((gv) => {
+                            const active = Date.now() - gv.lastVisit.getTime() < 120 * 1000;
+                            return (
+                              <tr key={gv.ip} className="hover:bg-slate-50/80 transition-colors">
+                                <td className="p-4 text-center">
+                                  {active ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                      Activo Ahora
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-400">
+                                      Inactivo
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-4 font-mono font-bold text-slate-900">
+                                  {gv.ip}
+                                </td>
+                                <td className="p-4">
+                                  <div className="flex flex-col">
+                                    <span className="text-slate-900 text-xs">{gv.city}</span>
+                                    <span className="text-[10px] text-slate-400 font-bold">{gv.country}</span>
+                                  </div>
+                                </td>
+                                <td className="p-4">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200/50 text-[9px] font-extrabold uppercase">
+                                      {gv.browser}
+                                    </span>
+                                    <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200/50 text-[9px] font-extrabold uppercase">
+                                      {gv.os}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="p-4 text-center">
+                                  <span className="bg-slate-100 text-slate-900 border border-slate-200 font-black px-2.5 py-0.5 rounded-full text-[10px]">
+                                    {gv.totalVisits} visitas
+                                  </span>
+                                </td>
+                                <td className="p-4 whitespace-nowrap">
+                                  <div className="flex flex-col">
+                                    <span className="text-slate-900 font-bold">
+                                      {gv.lastVisit.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-mono">
+                                      {gv.lastVisit.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="p-4 max-w-[150px] truncate">
+                                  <span className="text-[10px] bg-slate-100 border border-gray-150 text-slate-600 px-2 py-0.5 rounded max-w-full block truncate font-mono" title={gv.lastPage}>
+                                    {gv.lastPage}
+                                  </span>
+                                </td>
+                                <td className="p-4 text-center">
+                                  <button
+                                    onClick={() => {
+                                      setSelectedIpHistory(gv.ip);
+                                      setIsIpHistoryModalOpen(true);
+                                    }}
+                                    className="p-1 px-2.5 bg-teal-50 hover:bg-teal-100 active:scale-95 border border-teal-200 text-teal-700 rounded-lg cursor-pointer transition-all inline-flex items-center gap-1 font-bold text-[10px]"
+                                    title="Ver bitácora detallada de visitas de esta IP"
+                                  >
+                                    <span>🔍 Ver Bitácora</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -2435,6 +3406,174 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {isIpHistoryModalOpen && selectedIpHistory && (
+        <div className="fixed inset-0 z-[120] bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col text-xs animate-scale-up max-h-[85vh]">
+            {/* Modal Header */}
+            <div className="p-5 bg-slate-900 border-b border-slate-800 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Clock className="w-5 h-5 text-teal-400" />
+                <div>
+                  <h3 className="font-bold text-sm">Bitácora Detallada de Visitas</h3>
+                  <span className="text-[10px] text-slate-400 font-mono">IP de Origen: {selectedIpHistory}</span>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  setIsIpHistoryModalOpen(false);
+                  setSelectedIpHistory(null);
+                }} 
+                className="p-1 px-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg cursor-pointer font-bold"
+                title="Cerrar bitácora"
+              >
+                <span className="text-red-400">✖ Cerrar</span>
+              </button>
+            </div>
+
+            {/* Modal body (Timeline) */}
+            <div className="p-6 overflow-y-auto space-y-4 flex-1 bg-slate-50">
+              <div className="space-y-4">
+                <div className="p-3 bg-teal-50 border border-teal-200/55 rounded-xl flex items-center gap-3">
+                  <div className="h-2-5 w-2.5 rounded-full bg-emerald-500 animate-ping"></div>
+                  <div>
+                    <h4 className="font-extrabold text-teal-950">Resumen del Dispositivo de navegación</h4>
+                    {(() => {
+                      const sample = visitorHistory.find(v => v.ip === selectedIpHistory);
+                      if (!sample) return null;
+                      return (
+                        <p className="text-[11px] text-teal-800 mt-0.5 leading-relaxed">
+                          Ubicado en <strong>{sample.city || 'La Habana'}, {sample.country || 'Cuba'}</strong>, navegando desde <strong>{sample.os || 'Desconocido'}</strong> usando <strong>{sample.browser || 'Navegador'}</strong>.
+                        </p>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                <div className="relative border-l-2 border-slate-200 ml-3.5 pl-6 space-y-5 py-2">
+                  {visitorHistory
+                    .filter(v => v.ip === selectedIpHistory)
+                    .map((item, idx) => {
+                      return (
+                        <div key={item.id || idx} className="relative">
+                          {/* Timeline bullet dot */}
+                          <div className={`absolute -left-[31px] top-1 h-3.5 w-3.5 rounded-full border-2 border-white flex items-center justify-center ${
+                            idx === 0 ? 'bg-teal-500 scale-110 shadow' : 'bg-slate-400'
+                          }`}></div>
+                          
+                          <div className="bg-white p-3.5 rounded-xl border border-gray-150 shadow-xs hover:border-teal-500/20 hover:shadow transition-all">
+                            <div className="flex items-center justify-between gap-2.5">
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-extrabold border border-gray-200">
+                                Evento #{visitorHistory.filter(v => v.ip === selectedIpHistory).length - idx}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-mono font-bold">
+                                {new Date(item.timestamp).toLocaleString('es-ES', {
+                                  day: '2-digit', month: '2-digit', year: 'numeric',
+                                  hour: '2-digit', minute: '2-digit', second: '2-digit'
+                                })}
+                              </span>
+                            </div>
+
+                            <p className="font-bold text-xs text-slate-800 mt-2 flex items-center gap-1.5">
+                              <span className="text-teal-600">📌</span>
+                              <span>Acción / Recorrido:</span>
+                              <strong className="text-teal-900 bg-teal-50/75 border border-teal-100 px-2 py-0.5 rounded text-[11px] font-extrabold font-mono">
+                                {item.page_visited}
+                              </strong>
+                            </p>
+
+                            <p className="text-[10px] text-slate-400 font-medium mt-1.5 truncate font-mono bg-slate-50 p-1.5 rounded border border-gray-100">
+                              UA: {item.user_agent}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-white border-t border-gray-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsIpHistoryModalOpen(false);
+                  setSelectedIpHistory(null);
+                }}
+                className="px-4 py-2 border rounded-xl hover:bg-slate-50 text-slate-500 cursor-pointer font-bold text-xs"
+              >
+                Cerrar Bitácora
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Password Confirmation Prompt Modal to officially publish changes */}
+      {isSaveConfirmOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fade-in" id="publish-save-confirm-prompt">
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border border-gray-100 flex flex-col p-6 space-y-4 animate-scale-up">
+            
+            <div className="flex items-center gap-3 border-b border-gray-100 pb-3">
+              <span className="w-10 h-10 bg-amber-100 text-amber-700 flex items-center justify-center rounded-full text-lg select-none font-sans font-bold">⚠️</span>
+              <div>
+                <h3 className="font-extrabold text-sm text-slate-900 leading-tight">Confirmación de Seguridad</h3>
+                <p className="text-[10px] text-slate-500 mt-0.5 font-sans">Publicación de ajustes globales en la tienda en vivo</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed font-sans">
+              Estás a punto de reemplazar los ajustes comerciales, colores, tipografía, monedas y temas de la tienda pública con tu borrador del Sandbox. 
+              Por motivos de seguridad, <strong className="text-slate-900">debes re-confirmar tu password de Administrador</strong> para autorizar la publicación.
+            </p>
+
+            <form onSubmit={handlePublishDraft} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1 font-sans">Contraseña de Administrador ({currentUser?.name})</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="Introduce tu contraseña segura"
+                  value={confirmAdminPassword}
+                  onChange={(e) => setConfirmAdminPassword(e.target.value)}
+                  className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono"
+                  disabled={isConfirmLoading || confirmSuccess}
+                />
+              </div>
+
+              {confirmError && (
+                <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-600 text-[10px] font-semibold">
+                  ⚠️ {confirmError}
+                </div>
+              )}
+
+              {confirmSuccess && (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-600 text-[10px] font-semibold flex items-center gap-1.5 font-sans">
+                  <span>✅ Contraseña autorizada con éxito. Aplicando y publicando cambios...</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setIsSaveConfirmOpen(false)}
+                  className="px-4 py-2 border rounded-xl hover:bg-slate-50 text-slate-500 cursor-pointer"
+                  disabled={isConfirmLoading || confirmSuccess}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-slate-950 text-white rounded-xl hover:bg-slate-900 cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                  disabled={isConfirmLoading || confirmSuccess}
+                >
+                  {isConfirmLoading ? 'Verificando...' : 'Autorizar y Publicar'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

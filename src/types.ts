@@ -30,6 +30,7 @@ export interface Worker {
   locked_until?: string | null;
   must_reset_password?: boolean; // New: force password update on first login
   permissions?: string[]; // New: list of allowed actions
+  security_pin?: string; // Secure recovery PIN (6 digits) for password recovery
 }
 
 export interface OrderItem {
@@ -88,6 +89,24 @@ export interface ShopSettings {
   about_text?: string;
   smart_search_text?: string;
   shop_logo_url?: string;
+  theme_preset?: 'classic' | 'dark' | 'neon' | 'warm' | 'emerald' | 'custom';
+  color_primary?: string;
+  color_header_bg?: string;
+  color_page_bg?: string;
+  color_text?: string;
+  color_card_bg?: string;
+  font_family?: 'Inter' | 'Space Grotesk' | 'JetBrains Mono' | 'Playfair Display' | 'Outfit';
+  shop_logo_type?: 'image' | 'text' | 'icon';
+  shop_logo_val?: string;
+  currencies?: string[];
+  banner_visible?: boolean;
+  banner_text?: string;
+  banner_bg?: string;
+  banner_text_color?: string;
+  loading_text?: string;
+  maps_option?: 'address' | 'coords' | 'embed';
+  maps_coords?: string;
+  maps_embed_url?: string;
 }
 
 export interface ProductCategory {
@@ -103,6 +122,7 @@ export interface ProductReview {
   reviewer_name: string;
   comment: string;
   created_at: string;
+  is_hidden?: boolean; // Admin and gerente can hide or reveal reviews
 }
 
 export interface SupportInquiry {
@@ -122,3 +142,16 @@ export interface ActiveClient {
   last_action: string;
   cart_count: number;
 }
+
+export interface VisitorHistoryEntry {
+  id: string;
+  ip: string;
+  timestamp: string;
+  user_agent: string;
+  browser: string;
+  os: string;
+  page_visited: string;
+  country: string;
+  city: string;
+}
+

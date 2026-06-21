@@ -16,13 +16,25 @@ import {
 interface StorefrontProps {
   onAdminOpen: () => void;
   productsRefresher: number; // Trigger reload when admin updates products
+  previewSettings?: ShopSettings | null; // Override settings for Test Store live preview
 }
 
-export default function Storefront({ onAdminOpen, productsRefresher }: StorefrontProps) {
+export default function Storefront({ onAdminOpen, productsRefresher, previewSettings }: StorefrontProps) {
   // Database States
   const [products, setProducts] = useState<Product[]>([]);
-  const [settings, setSettings] = useState<ShopSettings | null>(null);
+  const [settings, setSettings] = useState<ShopSettings | null>(() => {
+    if (previewSettings) return previewSettings;
+    const cached = localStorage.getItem('shop_settings');
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (e) {}
+    }
+    return null;
+  });
+  const [dbCategories, setDbCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isDbConnected, setIsDbConnected] = useState(true); // Flag for database offline status
 
   // Search & Navigation
   const [selectedCategory, setSelectedCategory] = useState<string>('General');
@@ -49,8 +61,45 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
   // Offline status
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
+  // Logged-in Staff Session for Inline moderation
+  const [loggedWorker, setLoggedWorker] = useState<any>(null);
+
+  // Dynamic Google Maps URL constructor supporting Address, Coords, or Custom Embed iframe
+  const getGoogleMapsUrl = (): string => {
+    const opt = settings?.maps_option || 'address';
+    if (opt === 'coords' && settings?.maps_coords) {
+      return `https://maps.google.com/maps?q=${encodeURIComponent(settings.maps_coords.trim())}&t=&z=16&ie=UTF8&iwloc=&output=embed`;
+    }
+    if (opt === 'embed' && settings?.maps_embed_url) {
+      let src = settings.maps_embed_url.trim();
+      if (src.includes('<iframe')) {
+        const match = src.match(/src="([^"]+)"/);
+        if (match && match[1]) {
+          src = match[1];
+        }
+      }
+      return src;
+    }
+    // Default or 'address' option
+    return `https://maps.google.com/maps?q=${encodeURIComponent(settings?.address || 'Cuba')}&t=&z=16&ie=UTF8&iwloc=&output=embed`;
+  };
+
+  useEffect(() => {
+    const cached = localStorage.getItem('active_worker_session');
+    if (cached) {
+      try {
+        setLoggedWorker(JSON.parse(cached));
+      } catch (e) {
+        setLoggedWorker(null);
+      }
+    } else {
+      setLoggedWorker(null);
+    }
+  }, []);
+
   // Detail Modal for Product Reviews / Star rating
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [expandedImage, setExpandedImage] = useState<string | null>(null);
   const [reviews, setReviews] = useState<ProductReview[]>([]);
   const [newReviewName, setNewReviewName] = useState('');
   const [newReviewRating, setNewReviewRating] = useState(5);
@@ -97,18 +146,37 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
     async function loadData() {
       setLoading(true);
       try {
+        // Run database connection check
+        const connected = await SupabaseService.checkConnection();
+        setIsDbConnected(connected);
+        
+        if (!connected) {
+          setLoading(false);
+          return;
+        }
+
         const rawProds = await SupabaseService.getProducts();
-        const rawSettings = await SupabaseService.getSettings();
         setProducts(rawProds);
-        setSettings(rawSettings);
+
+        // Fetch categories directly from the database table
+        const rawCats = await SupabaseService.getCategories();
+        setDbCategories(rawCats);
+
+        if (previewSettings) {
+          setSettings(previewSettings);
+        } else {
+          const rawSettings = await SupabaseService.getSettings();
+          setSettings(rawSettings);
+        }
       } catch (e) {
         console.error('Error fetching storefront data:', e);
+        setIsDbConnected(false);
       } finally {
         setLoading(false);
       }
     }
     loadData();
-  }, [productsRefresher]);
+  }, [productsRefresher, previewSettings]);
 
   // Load reviews when selected product changes in modal
   useEffect(() => {
@@ -126,11 +194,97 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
     }
   };
 
-  // Extract all categories dynamically from visible products
-  const categories: string[] = ['General', ...Array.from(new Set(products
-    .filter(p => p.is_visible)
-    .map(p => p.category)
-  ))] as string[];
+  // --- REGISTRO Y SEGUIMIENTO EN VIVO DE VISITANTES ---
+  useEffect(() => {
+    let activeInterval: any;
+    async function initVisitor() {
+      let clientIp = 'Unknown IP';
+      let country = 'Cuba';
+      let city = 'La Habana';
+
+      try {
+        const res = await fetch('https://ipapi.co/json/');
+        if (res.ok) {
+          const dat = await res.json();
+          if (dat.ip) {
+            clientIp = dat.ip;
+            country = dat.country_name || 'Cuba';
+            city = dat.city || 'La Habana';
+          }
+        }
+      } catch (err) {
+        try {
+          const res2 = await fetch('https://api.ipify.org?format=json');
+          if (res2.ok) {
+            const dat2 = await res2.json();
+            if (dat2.ip) {
+              clientIp = dat2.ip;
+            }
+          }
+        } catch (e2) {}
+      }
+
+      if (clientIp === 'Unknown IP') {
+        let localIp = localStorage.getItem('visitor_my_device_ip');
+        if (!localIp) {
+          const randomOctets = [
+            Math.floor(Math.random() * 80) + 120,
+            Math.floor(Math.random() * 200) + 10,
+            Math.floor(Math.random() * 200) + 10,
+            Math.floor(Math.random() * 250) + 4
+          ];
+          localIp = randomOctets.join('.');
+          localStorage.setItem('visitor_my_device_ip', localIp);
+        }
+        clientIp = localIp;
+      }
+
+      localStorage.setItem('visitor_last_known_ip', clientIp);
+      localStorage.setItem('visitor_last_country', country);
+      localStorage.setItem('visitor_last_city', city);
+
+      const ua = navigator.userAgent;
+      await SupabaseService.recordVisitor(clientIp, 'Inicio de Tienda', ua, country, city);
+
+      activeInterval = setInterval(async () => {
+        const currentIp = localStorage.getItem('visitor_last_known_ip') || clientIp;
+        const currentCountry = localStorage.getItem('visitor_last_country') || country;
+        const currentCity = localStorage.getItem('visitor_last_city') || city;
+        await SupabaseService.recordVisitor(currentIp, 'Navegando en Catálogo', ua, currentCountry, currentCity);
+      }, 35000); // Heartbeat each 35 seconds to remain "Active now"
+    }
+
+    initVisitor();
+    return () => {
+      if (activeInterval) clearInterval(activeInterval);
+    };
+  }, []);
+
+  // Track category changes
+  useEffect(() => {
+    const savedIp = localStorage.getItem('visitor_last_known_ip');
+    const country = localStorage.getItem('visitor_last_country') || 'Cuba';
+    const city = localStorage.getItem('visitor_last_city') || 'La Habana';
+    if (savedIp && selectedCategory) {
+      SupabaseService.recordVisitor(savedIp, `Exploró Categoría: ${selectedCategory}`, navigator.userAgent, country, city);
+    }
+  }, [selectedCategory]);
+
+  // Track detail view
+  useEffect(() => {
+    const savedIp = localStorage.getItem('visitor_last_known_ip');
+    const country = localStorage.getItem('visitor_last_country') || 'Cuba';
+    const city = localStorage.getItem('visitor_last_city') || 'La Habana';
+    if (savedIp && selectedProduct) {
+      SupabaseService.recordVisitor(savedIp, `Abrió Detalle: ${selectedProduct.name}`, navigator.userAgent, country, city);
+    }
+  }, [selectedProduct]);
+
+  // Load categories directly from database, combined dynamically with active products to ensure zero data-loss
+  const categories: string[] = ['General', ...Array.from(new Set([
+    ...dbCategories.map(c => c.name),
+    ...products.filter(p => p.is_visible).map(p => p.category)
+  ]))] as string[];
 
   // Filtering products
   const filteredProducts = products.filter(p => {
@@ -379,8 +533,65 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
     }
   };
 
+  // Unified Loading and Database Connection active check screen
+  if (loading || !settings || !isDbConnected) {
+    return (
+      <div 
+        className="min-h-screen bg-white text-slate-800 flex flex-col items-center justify-center p-6 text-center font-sans select-none animate-fade-in" 
+        id="storefront-initial-loading-screen"
+      >
+        <div className="max-w-md w-full space-y-8 flex flex-col items-center">
+          {/* Symbol of professional updating */}
+          <div className="relative">
+            <div className="w-24 h-24 bg-teal-500/5 rounded-full flex items-center justify-center border border-teal-500/10">
+              <RefreshCw className="w-10 h-10 text-teal-600 animate-spin duration-[2s]" id="sync-icon-spin" />
+            </div>
+            <div className="absolute -top-1 -right-1 w-4 h-4 bg-teal-500 rounded-full animate-ping"></div>
+            <div className="absolute -top-1 -right-1 w-4 h-4 bg-teal-500 rounded-full border-2 border-white"></div>
+          </div>
+
+          <div className="space-y-2">
+            <h2 className="text-xl font-bold text-slate-900 tracking-tight">Sincronizando Boutique</h2>
+            <p className="text-[10px] text-teal-600 uppercase font-extrabold tracking-widest leading-none">Estableciendo canal directo con la Base de Datos</p>
+          </div>
+
+          {/* Prompt specified professional notification sms placeholder */}
+          <div className="p-5 bg-slate-50 border border-slate-100 rounded-2xl shadow-xs text-xs text-slate-600 font-bold leading-relaxed max-w-sm">
+            "{settings?.loading_text || 'Actualizando, por favor espere. Disculpe por las molestias ocasionadas'}"
+          </div>
+
+          <p className="text-[10px] text-slate-400 max-w-xs font-sans">
+            Cargando inventario, tasas de cambios globales y estilos autorizados en tiempo real directamente desde tu consola Supabase.
+          </p>
+
+          {!isDbConnected && !loading && (
+            <div className="space-y-3 w-full pt-4 border-t border-gray-100">
+              <p className="text-[10px] text-red-500 font-bold">⚠️ No se pudo establecer la conexión activa con Supabase.</p>
+              <button 
+                type="button"
+                onClick={async () => {
+                  setLoading(true);
+                  const connected = await SupabaseService.checkConnection();
+                  setIsDbConnected(connected);
+                  if (connected) {
+                    window.location.reload();
+                  } else {
+                    setLoading(false);
+                  }
+                }}
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-[11px] p-3.5 rounded-xl transition-all cursor-pointer shadow-md active:scale-98 uppercase tracking-wider"
+              >
+                Reintentar Conexión Directa
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-[#FBFBFD] text-slate-800 flex flex-col font-sans transition-colors duration-300">
+    <div className="min-h-screen bg-[#FBFBFD] text-slate-850 flex flex-col font-sans transition-colors duration-300">
       
       {/* Network Alert (Offline support badge) */}
       {!isOnline && (
@@ -393,17 +604,28 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
       {/* Luxury Minimalist Header */}
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-100 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          {settings?.shop_logo_url ? (
-            <img 
-              src={settings.shop_logo_url} 
-              alt="Logo" 
-              className="w-9 h-9 object-cover rounded-lg border border-gray-200" 
-            />
-          ) : (
-            <div className="w-9 h-9 bg-slate-900 rounded-lg flex items-center justify-center text-white font-bold text-sm tracking-widest shadow-inner">
-              M
-            </div>
-          )}
+          {(() => {
+            const logoType = settings?.shop_logo_type || (settings?.shop_logo_url ? 'image' : 'text');
+            const logoVal = settings?.shop_logo_val || settings?.shop_logo_url || 'S';
+            
+            if (logoType === 'image') {
+              return (
+                <img 
+                  src={logoVal} 
+                  alt="Logo" 
+                  className="w-10 h-10 object-cover rounded-xl border border-gray-200/80 shadow-sm" 
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              );
+            }
+            return (
+              <div className="w-10 h-10 bg-slate-950 text-teal-400 rounded-xl flex items-center justify-center font-bold text-base tracking-widest shadow-md border border-slate-800/80 uppercase">
+                {logoVal.substring(0, 3)}
+              </div>
+            );
+          })()}
           <div>
             <h1 className="text-base font-bold text-slate-900 tracking-tight">
               {settings?.shop_name || 'Boutique Minimal'}
@@ -581,12 +803,16 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
                   className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col group"
                 >
                   {/* Image container */}
-                  <div className="relative aspect-[4/3] bg-slate-50 overflow-hidden">
+                  <div className="relative aspect-[4/3] bg-slate-50 overflow-hidden cursor-zoom-in">
                     <img 
                       src={product.image_url || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=600'} 
                       alt={product.name}
                       referrerPolicy="no-referrer"
                       className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedImage(product.image_url || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=600');
+                      }}
                     />
 
                     {/* Stock alert bar overlay */}
@@ -1056,34 +1282,106 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
 
       {/* About Modal overlay */}
       {isAboutOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col animate-scale-up">
-            <div className="px-5 py-4 bg-slate-950 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in" id="about-store-full-overlay">
+          <div className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col animate-scale-up max-h-[90vh]">
+            <div className="px-6 py-5 bg-slate-950 text-white flex items-center justify-between border-b border-white/5">
+              <div className="flex items-center gap-2.5">
                 <Info className="w-5 h-5 text-teal-400" />
-                <h3 className="font-bold text-sm">Sobre Nosotros</h3>
+                <div>
+                  <h3 className="font-extrabold text-sm tracking-tight text-white">Sobre Nosotros</h3>
+                  <p className="text-[9px] text-slate-400 uppercase tracking-widest font-bold">Información de la Boutique</p>
+                </div>
               </div>
               <button 
                 onClick={() => setIsAboutOpen(false)}
-                className="p-1 text-slate-300 hover:text-white rounded-lg cursor-pointer animate-fade-in"
+                className="bg-white/10 hover:bg-white/20 text-white p-1.5 rounded-full cursor-pointer transition-all active:scale-95 text-slate-300 hover:text-white"
+                title="Cerrar Información"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-5 overflow-y-auto max-h-[70vh] text-xs text-slate-600 space-y-4">
-              <div className="text-center pb-4 border-b border-gray-100">
-                <h4 className="text-base font-bold text-slate-900">{settings?.shop_name || 'Boutique Minimal'}</h4>
-                <p className="text-[10px] text-slate-400 font-medium">Establecimiento de confianza</p>
+            
+            <div className="p-6 overflow-y-auto space-y-6 text-xs text-slate-600 leading-relaxed max-h-[82vh]">
+              <div className="text-center pb-4 border-b border-slate-100">
+                <h4 className="text-xl font-extrabold text-slate-900 tracking-tight">{settings?.shop_name}</h4>
+                <p className="text-[10px] text-teal-600 uppercase font-black tracking-widest mt-1">Establecimiento de confianza</p>
               </div>
-              <p className="whitespace-pre-line leading-relaxed text-slate-700">
-                {settings?.about_text || 'Bienvenidos a nuestra tienda virtual premium. Ofrecemos el mejor servicio de despacho local inmediato.'}
-              </p>
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-1">
-                <p className="font-bold text-slate-800 text-[10px] uppercase">Datos de Contacto:</p>
-                <p>📍 Dirección: {settings?.address || 'Sin dirección declarada'}</p>
-                <p>⌚ Horarios: {settings?.business_hours || 'Sin horario declarado'}</p>
-                <p>📞 Teléfono: {settings?.contact_number || 'Sin teléfono'}</p>
+
+              <div className="space-y-3">
+                <p className="whitespace-pre-line text-slate-600 text-xs font-medium leading-relaxed bg-slate-50 p-4 border border-slate-100 rounded-2xl">
+                  {settings?.about_text}
+                </p>
               </div>
+
+              {/* Informative details and location map */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-slate-50 p-4 border border-slate-100 rounded-2xl flex flex-col justify-between">
+                  <div>
+                    <h5 className="font-extrabold text-slate-900 text-[10px] uppercase tracking-wider mb-2.5">Datos Generales & Contacto</h5>
+                    <ul className="space-y-3 text-xs font-semibold text-slate-600">
+                      <li className="flex items-start gap-2">
+                        <span className="text-slate-400">📍</span>
+                        <div>
+                          <p className="text-[9px] text-slate-400 uppercase leading-none mb-0.5">Dirección:</p>
+                          <p className="text-slate-800">{settings?.address}</p>
+                        </div>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-slate-400">⌚</span>
+                        <div>
+                          <p className="text-[9px] text-slate-400 uppercase leading-none mb-0.5">Horarios:</p>
+                          <p className="text-slate-800">{settings?.business_hours}</p>
+                        </div>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-slate-400">📞</span>
+                        <div>
+                          <p className="text-[9px] text-slate-400 uppercase leading-none mb-0.5">Soporte Público:</p>
+                          <p className="text-slate-800">{settings?.contact_number}</p>
+                        </div>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="border-t border-slate-200 mt-4 pt-4 flex items-center justify-between">
+                    <span className="text-[9px] text-slate-400 font-extrabold uppercase">Soporte Directo WhatsApp</span>
+                    <a 
+                      href={`https://wa.me/${settings?.whatsapp_number}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 px-3 py-1.5 rounded-lg font-black text-[10px] transition-all flex items-center gap-1 shadow-sm uppercase tracking-wide cursor-pointer"
+                    >
+                      <span>Hablar ahora</span>
+                    </a>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-3 border border-slate-100 rounded-2xl flex flex-col space-y-2">
+                  <h5 className="font-extrabold text-slate-900 text-[10px] uppercase tracking-wider mb-1 px-1">📍 Ubicación en Google Maps</h5>
+                  {/* Google Maps Embed iframe */}
+                  <div className="flex-1 min-h-[180px] md:min-h-0 rounded-xl overflow-hidden border border-slate-200 shadow-inner relative bg-slate-100">
+                    <iframe
+                      id="about-google-maps-iframe"
+                      title="Ubicación exacta de la tienda"
+                      src={getGoogleMapsUrl()}
+                      className="w-full h-full border-0 absolute inset-0"
+                      allowFullScreen
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-slate-50 px-6 py-4 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsAboutOpen(false)}
+                className="bg-slate-900 hover:bg-slate-850 text-white font-extrabold text-[10px] uppercase tracking-wider py-2.5 px-5 rounded-xl transition-all cursor-pointer shadow active:scale-95 animate-fade-in"
+              >
+                Cerrar Ventana
+              </button>
             </div>
           </div>
         </div>
@@ -1235,12 +1533,13 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
           <div className="bg-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[90vh] md:max-h-[85vh] animate-scale-up">
             
             {/* Product Image Panel */}
-            <div className="w-full md:w-1/2 bg-slate-50 relative flex items-center justify-center border-r border-gray-100 min-h-[220px]">
+            <div className="w-full md:w-1/2 bg-slate-50 relative flex items-center justify-center border-r border-gray-100 min-h-[220px] cursor-zoom-in">
               <img 
                 src={selectedProduct.image_url || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=600'} 
                 alt={selectedProduct.name}
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover max-h-[250px] md:max-h-full"
+                onClick={() => setExpandedImage(selectedProduct.image_url || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=600')}
               />
               <span className="absolute top-3 left-3 text-[9px] font-bold bg-slate-900 text-white uppercase px-2 py-0.5 rounded shadow-sm">
                 {selectedProduct.category}
@@ -1278,34 +1577,86 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
               </div>
 
               {/* Verified reviews & star selection list */}
-              <div className="border-t border-gray-100 pt-4 flex-1 flex flex-col min-h-[150px] max-h-[200px] overflow-y-auto space-y-2">
-                <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Opiniones de Clientes ({reviews.length})</p>
-                
-                {reviews.length === 0 ? (
-                  <div className="text-center py-4 text-slate-400 text-xs my-auto">
-                    <p>No hay valoraciones aún.</p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">¡Sé el primero en dar tu opinión!</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {reviews.map(rev => (
-                      <div key={rev.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100/60 text-xs">
-                        <div className="flex items-center justify-between font-bold text-[10px] text-slate-700">
-                          <span>{rev.customer_name}</span>
-                          <div className="flex items-center gap-0.5 text-amber-400 animate-fade-in">
-                            {Array.from({ length: 5 }).map((_, i) => (
-                              <Star 
-                                key={i} 
-                                className={`w-3 h-3 fill-current ${i < rev.rating ? 'text-amber-400' : 'text-slate-200'}`} 
-                              />
-                            ))}
-                          </div>
-                        </div>
-                        <p className="text-slate-600 mt-1 pl-0.5 leading-relaxed font-medium">{rev.comment}</p>
+              <div className="border-t border-gray-100 pt-4 flex-1 flex flex-col min-h-[150px] max-h-[300px] overflow-y-auto space-y-2">
+                {(() => {
+                  const isStaff = loggedWorker && (loggedWorker.role === 'admin' || loggedWorker.role === 'gerente');
+                  const targetReviews = isStaff ? reviews : reviews.filter(r => !r.is_hidden);
+                  
+                  return (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Opiniones de Clientes ({targetReviews.length})</p>
+                        {isStaff && (
+                          <span className="text-[9px] bg-teal-500/10 text-teal-700 font-bold px-1.5 py-0.5 rounded border border-teal-500/20">Modo Moderación</span>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                )}
+                      
+                      {targetReviews.length === 0 ? (
+                        <div className="text-center py-4 text-slate-400 text-xs my-auto">
+                          <p>No hay valoraciones aún.</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">¡Sé el primero en dar tu opinión!</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {targetReviews.map(rev => (
+                            <div key={rev.id} className={`p-2.5 rounded-xl border text-xs transition-all ${rev.is_hidden ? 'bg-amber-500/5 border-amber-200/50 opacity-80' : 'bg-slate-50 border-slate-100/60'}`}>
+                              <div className="flex items-center justify-between font-bold text-[10px] text-slate-700 font-sans">
+                                <span className="flex items-center gap-1.5">
+                                  {rev.customer_name}
+                                  {rev.is_hidden && (
+                                    <span className="text-[8px] bg-red-100 text-red-600 px-1 rounded uppercase font-black tracking-wider">Oculto</span>
+                                  )}
+                                </span>
+                                <div className="flex items-center gap-0.5 text-amber-400 animate-fade-in">
+                                  {Array.from({ length: 5 }).map((_, i) => (
+                                    <Star 
+                                      key={i} 
+                                      id={`star-mod-${rev.id}-${i}`}
+                                      className={`w-3 h-3 fill-current ${i < rev.rating ? 'text-amber-400' : 'text-slate-200'}`} 
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                              <p className="text-slate-600 mt-1 pl-0.5 leading-relaxed font-semibold">{rev.comment}</p>
+                              
+                              {/* Moderation Controls */}
+                              {isStaff && (
+                                <div className="mt-2 pt-2 border-t border-dashed border-slate-250 flex items-center justify-end gap-2 text-[10px]" id={`mod-action-grp-${rev.id}`}>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      try {
+                                        await SupabaseService.toggleReviewVisibility(rev.id, !rev.is_hidden);
+                                        loadReviews(selectedProduct.id);
+                                      } catch(e) {}
+                                    }}
+                                    className="text-[9px] text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 font-bold px-1.5 py-0.5 border border-amber-200 rounded transition-all cursor-pointer"
+                                  >
+                                    {rev.is_hidden ? 'Mostrar en Tienda' : 'Ocultar'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (confirm('¿Está totalmente seguro de eliminar permanentemente esta opinión de cliente? Esta acción no se puede deshacer.')) {
+                                        try {
+                                          await SupabaseService.deleteReview(rev.id);
+                                          loadReviews(selectedProduct.id);
+                                        } catch(e){}
+                                      }
+                                    }}
+                                    className="text-[9px] text-red-700 hover:text-red-800 bg-red-50 hover:bg-red-100 font-bold px-1.5 py-0.5 border border-red-200 rounded transition-all cursor-pointer"
+                                  >
+                                    Eliminar
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Form to leave a review */}
@@ -1395,6 +1746,33 @@ export default function Storefront({ onAdminOpen, productsRefresher }: Storefron
           </p>
         </div>
       </footer>
+
+      {/* Expanded Image Modal overlay */}
+      {expandedImage && (
+        <div 
+          className="fixed inset-0 z-[100] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in cursor-zoom-out"
+          id="expanded-image-backdrop-modal"
+          onClick={() => setExpandedImage(null)}
+        >
+          <div className="relative max-w-4xl max-h-[95vh] overflow-hidden rounded-2xl bg-white/5 border border-white/10 shadow-2xl p-1 animate-scale-up">
+            <button
+              type="button"
+              onClick={() => setExpandedImage(null)}
+              className="absolute top-4 right-4 z-50 bg-slate-900/80 hover:bg-slate-900 text-white p-2 rounded-full border border-white/10 shadow transition-all cursor-pointer"
+              title="Cerrar Imagen"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <img 
+              src={expandedImage} 
+              alt="Foto completa del producto" 
+              className="max-w-full max-h-[88vh] object-contain rounded-xl select-none mx-auto"
+              referrerPolicy="no-referrer"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

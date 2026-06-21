@@ -182,6 +182,32 @@ begin
   end if;
 end $$;
 
+-- 8. TABLA DE HISTORIAL DE VISITANTES
+create table if not exists visitor_history (
+  id uuid primary key default uuid_generate_v4(),
+  ip varchar not null,
+  timestamp timestamp with time zone default timezone('utc'::text, now()) not null,
+  user_agent text not null,
+  browser varchar not null,
+  os varchar not null,
+  page_visited varchar not null,
+  country varchar not null default 'Cuba',
+  city varchar not null default 'La Habana'
+);
+
+-- Habilitar Realtime para visitor_history
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_rel pr
+    join pg_publication p on p.oid = pr.prpubid
+    join pg_class c on c.oid = pr.prrelid
+    where p.pubname = 'supabase_realtime' and c.relname = 'visitor_history'
+  ) then
+    alter publication supabase_realtime add table visitor_history;
+  end if;
+end $$;
+
 -- =========================================================
 -- CONSULTA DE MUESTRA PARA PROBAR PRODUCTOS
 -- =========================================================

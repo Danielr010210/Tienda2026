@@ -4,7 +4,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { Product, Worker, Order, AuditLog, SecurityAlert, ShopSettings, ProductCategory, ProductReview, SupportInquiry } from './types';
+import { Product, Worker, Order, AuditLog, SecurityAlert, ShopSettings, ProductCategory, ProductReview, SupportInquiry, VisitorHistoryEntry } from './types';
 import { generateInvoiceNumber, hashSHA256 } from './utils';
 
 // Helper to check if string is a valid UUID
@@ -92,7 +92,8 @@ const DEFAULT_WORKERS = [
     failed_attempts: 0,
     locked_until: null,
     must_reset_password: false,
-    permissions: ['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']
+    permissions: ['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte'],
+    security_pin: '112233'
   },
   {
     id: 'w-2',
@@ -105,7 +106,8 @@ const DEFAULT_WORKERS = [
     failed_attempts: 0,
     locked_until: null,
     must_reset_password: true,
-    permissions: ['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']
+    permissions: ['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte'],
+    security_pin: '223344'
   },
   {
     id: 'w-3',
@@ -118,7 +120,8 @@ const DEFAULT_WORKERS = [
     failed_attempts: 0,
     locked_until: null,
     must_reset_password: true,
-    permissions: ['ver_pedidos', 'ver_inventario']
+    permissions: ['ver_pedidos', 'ver_inventario'],
+    security_pin: '334455'
   }
 ];
 
@@ -133,7 +136,25 @@ const DEFAULT_SETTINGS: ShopSettings = {
   about_visible: true,
   about_text: 'Bienvenido a Boutique Minimal. Somos una tienda premium enfocada en brindar la mejor calidad de servicio, envíos inmediatos y atención personalizada a nuestra distinguida clientela.',
   smart_search_text: 'Búsqueda Inteligente Supabase Live',
-  shop_logo_url: ''
+  shop_logo_url: '',
+  theme_preset: 'classic',
+  color_primary: '#0f172a',
+  color_header_bg: '#ffffff',
+  color_page_bg: '#F8F9FA',
+  color_text: '#1e293b',
+  color_card_bg: '#ffffff',
+  font_family: 'Inter',
+  shop_logo_type: 'text',
+  shop_logo_val: 'M',
+  currencies: ['USD', 'CUP', 'MLC', 'EUR'],
+  banner_visible: false,
+  banner_text: '',
+  banner_bg: '#1e293b',
+  banner_text_color: '#ffffff',
+  loading_text: 'Actualizando, por favor espere. Disculpe por las molestias ocasionadas',
+  maps_option: 'address',
+  maps_coords: '',
+  maps_embed_url: ''
 };
 
 const DEFAULT_AUDITS: AuditLog[] = [
@@ -236,6 +257,24 @@ export class SupabaseService {
   private static isReal() {
     const { url, key, mode } = this.getCredentials();
     return mode === 'real' && !!url && !!key;
+  }
+
+  static async checkConnection(): Promise<boolean> {
+    if (!this.isReal()) return false;
+    const client = this.getClient();
+    if (!client) return false;
+    try {
+      // Perform a lightweight query on shop_settings to prove real communication is fully online
+      const { data, error } = await client.from('shop_settings').select('id').limit(1);
+      if (error) {
+        console.error('Supabase connection health check error:', error);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error('Supabase connection health exception:', e);
+      return false;
+    }
   }
 
   private static getClient() {
@@ -429,7 +468,8 @@ export class SupabaseService {
             failed_attempts: dbWorker.failed_attempts,
             locked_until: dbWorker.locked_until,
             must_reset_password: dbWorker.must_reset_password,
-            permissions: dbWorker.permissions
+            permissions: dbWorker.permissions,
+            security_pin: dbWorker.security_pin
           };
           if (plainPassword || (dbWorker as any).password_sha256) {
             rowData.password_sha256 = plainPassword ? await hashSHA256(plainPassword) : (dbWorker as any).password_sha256;
@@ -685,7 +725,7 @@ export class SupabaseService {
       if (error || !data) {
         return getLocalStorageItem('shop_settings', DEFAULT_SETTINGS);
       }
-      return data;
+      return { ...DEFAULT_SETTINGS, ...data };
     } catch (e) {
       return getLocalStorageItem('shop_settings', DEFAULT_SETTINGS);
     }
@@ -915,19 +955,6 @@ export class SupabaseService {
     }
   }
 
-  // --- DATABASE CONNECTION CHECKER ---
-  static async checkConnection(): Promise<boolean> {
-    if (!this.isReal()) return false;
-    const client = this.getClient();
-    if (!client) return false;
-    try {
-      const { error } = await client.from('workers').select('id').limit(1);
-      return !error;
-    } catch {
-      return false;
-    }
-  }
-
   // --- PRODUCT CATEGORIES ---
   static async getCategories(): Promise<ProductCategory[]> {
     const defaultCats: ProductCategory[] = [
@@ -1045,6 +1072,27 @@ export class SupabaseService {
           await client.from('product_reviews').delete().eq('id', id);
         } catch (e) {
           console.error('Error deleting review from Supabase:', e);
+        }
+      }
+    }
+  }
+
+  static async toggleReviewVisibility(id: string, is_hidden: boolean): Promise<void> {
+    const all = getLocalStorageItem<ProductReview[]>('product_reviews', []);
+    const idx = all.findIndex(r => r.id === id);
+    if (idx >= 0) {
+      all[idx].is_hidden = is_hidden;
+      setLocalStorageItem('product_reviews', all);
+      this.logAudit('Sistema', is_hidden ? 'Ocultar Opinión' : 'Mostrar Opinión', `Se cambió visibilidad de opinión #${id} a ${is_hidden ? 'Oculta' : 'Visible'}`);
+    }
+
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try {
+          await client.from('product_reviews').update({ is_hidden }).eq('id', id);
+        } catch (e) {
+          console.error('Error updating review visibility on Supabase:', e);
         }
       }
     }
@@ -1168,6 +1216,121 @@ export class SupabaseService {
       const client = this.getClient();
       if (client) {
         try { await client.from('support_inquiries').delete().neq('customer_name', 'dummy_val'); } catch(e){}
+      }
+    }
+  }
+
+  // --- VISITOR TRACKING ---
+  static async getVisitorHistory(): Promise<VisitorHistoryEntry[]> {
+    const localHistory = getLocalStorageItem<VisitorHistoryEntry[]>('visitor_history', []);
+    
+    // Auto-cleanup older than 60 days
+    const sixtyDaysAgo = Date.now() - 60 * 24 * 3600 * 1000;
+    const cleanedLocal = localHistory.filter(h => new Date(h.timestamp).getTime() >= sixtyDaysAgo);
+    if (cleanedLocal.length !== localHistory.length) {
+      setLocalStorageItem('visitor_history', cleanedLocal);
+    }
+
+    if (!this.isReal()) {
+      return cleanedLocal;
+    }
+
+    const client = this.getClient();
+    if (!client) return cleanedLocal;
+    try {
+      const { data, error } = await client
+        .from('visitor_history')
+        .select('*')
+        .order('timestamp', { ascending: false });
+        
+      if (error) {
+        console.warn('Real visitor history fetch failed, using local:', error);
+        return cleanedLocal;
+      }
+      
+      // Keep real table clean
+      const sixtyDaysAgoISO = new Date(sixtyDaysAgo).toISOString();
+      await client.from('visitor_history').delete().lt('timestamp', sixtyDaysAgoISO);
+      
+      return data || [];
+    } catch (e) {
+      console.warn('Real visitor history fetch exception:', e);
+      return cleanedLocal;
+    }
+  }
+
+  static async recordVisitor(
+    ip: string, 
+    pageVisited: string, 
+    userAgent: string, 
+    country: string = 'Cuba', 
+    city: string = 'La Habana'
+  ): Promise<void> {
+    let browser = 'Unknown Browser';
+    let os = 'Unknown OS';
+    
+    if (/chrome|crios/i.test(userAgent)) browser = 'Chrome';
+    else if (/safari/i.test(userAgent)) browser = 'Safari';
+    else if (/firefox|iceweasel/i.test(userAgent)) browser = 'Firefox';
+    else if (/opera|opr/i.test(userAgent)) browser = 'Opera';
+    else if (/edge|edg/i.test(userAgent)) browser = 'Edge';
+    else if (/msie|trident/i.test(userAgent)) browser = 'IE';
+
+    if (/windows/i.test(userAgent)) os = 'Windows';
+    else if (/macintosh|mac os x/i.test(userAgent)) os = 'macOS';
+    else if (/android/i.test(userAgent)) os = 'Android';
+    else if (/iphone|ipad|ipod/i.test(userAgent)) os = 'iOS';
+    else if (/linux/i.test(userAgent)) os = 'Linux';
+
+    const newEntry: VisitorHistoryEntry = {
+      id: `vis-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+      ip: ip || '127.0.0.1',
+      timestamp: new Date().toISOString(),
+      user_agent: userAgent || 'Unknown UA',
+      browser,
+      os,
+      page_visited: pageVisited || 'Inicio de Tienda',
+      country: country || 'Cuba',
+      city: city || 'La Habana'
+    };
+
+    const local = getLocalStorageItem<VisitorHistoryEntry[]>('visitor_history', []);
+    local.unshift(newEntry);
+    
+    const sixtyDaysAgo = Date.now() - 60 * 24 * 3600 * 1000;
+    const cleanedLocal = local.filter(h => new Date(h.timestamp).getTime() >= sixtyDaysAgo);
+    setLocalStorageItem('visitor_history', cleanedLocal);
+
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try {
+          await client.from('visitor_history').insert({
+            ip: newEntry.ip,
+            user_agent: newEntry.user_agent,
+            browser: newEntry.browser,
+            os: newEntry.os,
+            page_visited: newEntry.page_visited,
+            country: newEntry.country,
+            city: newEntry.city
+          });
+        } catch (e) {
+          console.error('Supabase write visitor error:', e);
+        }
+      }
+    }
+  }
+
+  static async clearVisitorHistory(): Promise<void> {
+    setLocalStorageItem('visitor_history', []);
+    if (this.isReal()) {
+      const client = this.getClient();
+      if (client) {
+        try {
+          await client.from('visitor_history').delete().neq('ip', 'dummy_value_9a24');
+        } catch (e) {
+          console.error('Supabase delete visitor history error:', e);
+        }
       }
     }
   }
