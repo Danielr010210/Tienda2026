@@ -340,78 +340,104 @@ export class SupabaseService {
             image_url: product.image_url,
             stock: product.stock,
             is_visible: product.is_visible,
-            promotion_discount: product.promotion_discount
+            promotion_discount: product.promotion_discount,
+            currency: product.currency || 'CUP'
           };
           
-          if (isIdUuid) {
-            const { data: existing, error: checkError } = await client
-              .from('products')
-              .select('id')
-              .eq('id', product.id)
-              .maybeSingle();
-
-            if (checkError) {
-              console.error('Error checking existing product in Supabase:', checkError);
-            }
-
-            if (existing) {
-              const { error: updateError } = await client
+          const performSync = async (dataToSave: any) => {
+            if (isIdUuid) {
+              const { data: existing, error: checkError } = await client
                 .from('products')
-                .update(rowData)
-                .eq('id', product.id);
-              if (updateError) {
-                console.error('Error updating product in Supabase:', updateError);
-                throw updateError;
-              }
-            } else {
-              const { error: insertError } = await client
-                .from('products')
-                .insert({ ...rowData, id: product.id });
-              if (insertError) {
-                console.error('Error inserting product in Supabase:', insertError);
-                throw insertError;
-              }
-            }
-          } else {
-            // First check if a product with the same name already exists in the real DB to update it,
-            // or insert it as a new product
-            const { data: existing, error: nameCheckError } = await client
-              .from('products')
-              .select('id')
-              .eq('name', product.name)
-              .maybeSingle();
-            
-            if (nameCheckError) {
-              console.error('Error checking product by name in Supabase:', nameCheckError);
-            }
-            
-            if (existing) {
-              const { error: updateError } = await client
-                .from('products')
-                .update(rowData)
-                .eq('id', existing.id);
-              if (updateError) {
-                console.error('Error updating product by name in Supabase:', updateError);
-                throw updateError;
-              }
-              product.id = existing.id;
-            } else {
-              const { data: inserted, error: insertError } = await client
-                .from('products')
-                .insert(rowData)
                 .select('id')
-                .single();
-              if (insertError) {
-                console.error('Error inserting non-UUID product in Supabase:', insertError);
-                throw insertError;
+                .eq('id', product.id)
+                .maybeSingle();
+
+              if (checkError) {
+                console.error('Error checking existing product in Supabase:', checkError);
               }
-              if (inserted) {
-                product.id = inserted.id;
+
+              if (existing) {
+                const { error: updateError } = await client
+                  .from('products')
+                  .update(dataToSave)
+                  .eq('id', product.id);
+                if (updateError) {
+                  console.error('Error updating product in Supabase:', updateError);
+                  throw updateError;
+                }
+              } else {
+                const { error: insertError } = await client
+                  .from('products')
+                  .insert({ ...dataToSave, id: product.id });
+                if (insertError) {
+                  console.error('Error inserting product in Supabase:', insertError);
+                  throw insertError;
+                }
               }
+            } else {
+              // First check if a product with the same name already exists in the real DB to update it,
+              // or insert it as a new product
+              const { data: existing, error: nameCheckError } = await client
+                .from('products')
+                .select('id')
+                .eq('name', product.name)
+                .maybeSingle();
+              
+              if (nameCheckError) {
+                console.error('Error checking product by name in Supabase:', nameCheckError);
+              }
+              
+              if (existing) {
+                const { error: updateError } = await client
+                  .from('products')
+                  .update(dataToSave)
+                  .eq('id', existing.id);
+                if (updateError) {
+                  console.error('Error updating product by name in Supabase:', updateError);
+                  throw updateError;
+                }
+                product.id = existing.id;
+              } else {
+                const { data: inserted, error: insertError } = await client
+                  .from('products')
+                  .insert(dataToSave)
+                  .select('id')
+                  .single();
+                if (insertError) {
+                  console.error('Error inserting non-UUID product in Supabase:', insertError);
+                  throw insertError;
+                }
+                if (inserted) {
+                  product.id = inserted.id;
+
+                  // Update offline fallback memory to match
+                  const fallbackList = await this.getProducts();
+                  const findIdx = fallbackList.findIndex(p => p.name === product.name);
+                  if (findIdx >= 0) {
+                    fallbackList[findIdx].id = inserted.id;
+                    setLocalStorageItem('shop_products', fallbackList);
+                  }
+                }
+              }
+            }
+          };
+
+          try {
+            await performSync(rowData);
+          } catch (firstError: any) {
+            const errMsg = String(firstError?.message || '').toLowerCase();
+            // Fallback if their Supabase products table doesn't have the currency column yet
+            if (errMsg.includes('currency') && errMsg.includes('column')) {
+              console.warn('The products table on Supabase is missing "currency" column. Retrying sync without "currency"...');
+              const { currency, ...cleanRowData } = rowData;
+              await performSync(cleanRowData);
+            } else {
+              throw firstError;
             }
           }
         } catch (e) {
           console.error('Supabase sync product error:', e);
+          throw e; // Throw so that callers know it failed
         }
       }
     }

@@ -40,6 +40,7 @@ create table if not exists products (
   stock integer not null default 0 check (stock >= 0),
   is_visible boolean not null default true,
   promotion_discount integer not null default 0 check (promotion_discount >= 0 and promotion_discount <= 100),
+  currency varchar default 'CUP',
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -65,6 +66,7 @@ create table if not exists workers (
 -- Asegurar compatibilidad para bases de datos ya creadas previamente
 alter table workers add column if not exists must_reset_password boolean not null default true;
 alter table workers add column if not exists permissions text[] default '{}'::text[];
+alter table products add column if not exists currency varchar default 'CUP';
 
 -- Insertar trabajadores por defecto si no existen:
 -- Admin: Admin123!

@@ -135,6 +135,14 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   });
   const [workerPermissionsForm, setWorkerPermissionsForm] = useState<string[]>([]);
   const [workerMustResetPasswordForm, setWorkerMustResetPasswordForm] = useState<boolean>(true);
+  
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const showSuccessNotification = (msg: string) => {
+    setSuccessMessage(msg);
+    setTimeout(() => {
+      setSuccessMessage(null);
+    }, 4500);
+  };
 
   // Load backend database content
   const loadDatabaseData = async () => {
@@ -513,8 +521,10 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       setEditingProduct(null);
       await loadDatabaseData();
       onProductsUpdated(); // Notify storefront
+      showSuccessNotification('Actualizado');
     } catch (err) {
       console.error('Error saving product:', err);
+      alert('Error al guardar el producto. Verifique su conexión o base de datos.');
     }
   };
 
@@ -842,6 +852,14 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
 
   return (
     <div className="fixed inset-0 z-50 bg-[#F8F9FA] text-slate-800 flex flex-col md:flex-row overflow-hidden font-sans">
+      
+      {/* Toast Notification */}
+      {successMessage && (
+        <div className="fixed bottom-6 right-6 z-[9999] bg-emerald-600 text-white font-black text-xs px-4 py-3 rounded-xl shadow-xl flex items-center gap-2 border border-emerald-500 animate-scale-up">
+          <Check className="w-4 h-4 text-white" />
+          <span>{successMessage}</span>
+        </div>
+      )}
       
       {/* 1. LOGIN SHIELD COMPONENT */}
       {!currentUser ? (
@@ -1845,10 +1863,15 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                               <td className="px-5 py-3 text-center">
                                 <button
                                   onClick={async () => {
-                                    const updated = { ...prod, is_visible: !prod.is_visible };
-                                    await SupabaseService.saveProduct(updated);
-                                    await loadDatabaseData();
-                                    onProductsUpdated();
+                                    try {
+                                      const updated = { ...prod, is_visible: !prod.is_visible };
+                                      await SupabaseService.saveProduct(updated);
+                                      await loadDatabaseData();
+                                      onProductsUpdated();
+                                      showSuccessNotification('Actualizado');
+                                    } catch (err) {
+                                      console.error(err);
+                                    }
                                   }}
                                   title="Presiona para alternar visibilidad sin eliminar"
                                   className="mx-auto block"
