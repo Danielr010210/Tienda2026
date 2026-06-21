@@ -132,6 +132,7 @@ export interface SupportInquiry {
   type: 'consulta' | 'queja' | 'problema';
   message: string;
   created_at: string;
+  resolved?: boolean;
 }
 
 export interface ActiveClient {

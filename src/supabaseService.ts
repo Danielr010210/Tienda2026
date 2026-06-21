@@ -304,7 +304,16 @@ export class SupabaseService {
         console.warn('Supabase products fetch failed, using local local storage:', error);
         return getLocalStorageItem('shop_products', DEFAULT_PRODUCTS);
       }
-      return data || [];
+      
+      const localProducts = getLocalStorageItem<Product[]>('shop_products', DEFAULT_PRODUCTS);
+      const merged = (data || []).map((dbProd: any) => {
+        const localProd = localProducts.find(lp => lp.id === dbProd.id || lp.name === dbProd.name);
+        return {
+          ...dbProd,
+          currency: dbProd.currency || localProd?.currency || 'CUP'
+        };
+      });
+      return merged;
     } catch (e) {
       console.warn('Supabase products fetch exception, using local:', e);
       return getLocalStorageItem('shop_products', DEFAULT_PRODUCTS);
@@ -1269,14 +1278,52 @@ export class SupabaseService {
 
   static async saveSupportInquiry(inquiry: SupportInquiry): Promise<void> {
     const list = await this.getSupportInquiries();
-    list.unshift(inquiry);
+    const idx = list.findIndex(item => item.id === inquiry.id);
+    if (idx >= 0) {
+      list[idx] = inquiry;
+    } else {
+      list.unshift(inquiry);
+    }
     setLocalStorageItem('support_inquiries', list);
 
     if (this.isReal()) {
       const client = this.getClient();
       if (client) {
         try {
-          await client.from('support_inquiries').insert(inquiry);
+          const isIdUuid = isUUID(inquiry.id);
+          if (isIdUuid) {
+            const { data: existing } = await client
+              .from('support_inquiries')
+              .select('id')
+              .eq('id', inquiry.id)
+              .maybeSingle();
+
+            if (existing) {
+              await client.from('support_inquiries').update({
+                customer_name: inquiry.customer_name,
+                customer_phone: inquiry.customer_phone,
+                message: inquiry.message,
+                resolved: inquiry.resolved
+              }).eq('id', inquiry.id);
+            } else {
+              await client.from('support_inquiries').insert(inquiry);
+            }
+          } else {
+            const { data: existing } = await client
+              .from('support_inquiries')
+              .select('id')
+              .eq('customer_name', inquiry.customer_name)
+              .eq('message', inquiry.message)
+              .maybeSingle();
+
+            if (existing) {
+              await client.from('support_inquiries').update({
+                resolved: inquiry.resolved
+              }).eq('id', existing.id);
+            } else {
+              await client.from('support_inquiries').insert(inquiry);
+            }
+          }
         } catch (e) {
           console.error('Error saving support inquiry:', e);
         }

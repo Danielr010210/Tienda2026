@@ -130,8 +130,9 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     phone: string;
     is_active: boolean;
     plainPassword?: string;
+    security_pin?: string;
   }>({
-    username: '', name: '', role: 'empleado', phone: '', is_active: true, plainPassword: ''
+    username: '', name: '', role: 'empleado', phone: '', is_active: true, plainPassword: '', security_pin: ''
   });
   const [workerPermissionsForm, setWorkerPermissionsForm] = useState<string[]>([]);
   const [workerMustResetPasswordForm, setWorkerMustResetPasswordForm] = useState<boolean>(true);
@@ -143,6 +144,10 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       setSuccessMessage(null);
     }, 4500);
   };
+
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [showRecoveryPassword, setShowRecoveryPassword] = useState(false);
 
   // Load backend database content
   const loadDatabaseData = async () => {
@@ -684,7 +689,8 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       failed_attempts: editingWorker?.failed_attempts || 0,
       locked_until: editingWorker?.locked_until || null,
       must_reset_password: workerMustResetPasswordForm,
-      permissions: workerPermissionsForm
+      permissions: workerPermissionsForm,
+      security_pin: workerForm.security_pin || editingWorker?.security_pin || ''
     };
 
     try {
@@ -916,26 +922,46 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                 <form onSubmit={handlePasswordResetSubmit} className="space-y-4">
                   <div>
                     <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-widest mb-1.5">Nueva Contraseña Segura</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Nueva clave personalizada"
-                      value={newPasswordInput}
-                      onChange={(e) => setNewPasswordInput(e.target.value)}
-                      className="w-full text-xs p-3 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showResetPassword ? "text" : "password"}
+                        required
+                        placeholder="Nueva clave personalizada"
+                        value={newPasswordInput}
+                        onChange={(e) => setNewPasswordInput(e.target.value)}
+                        className="w-full text-xs p-3 pr-10 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowResetPassword(!showResetPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white cursor-pointer"
+                        title={showResetPassword ? "Ocultar Contraseña" : "Mostrar Contraseña"}
+                      >
+                        {showResetPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   <div>
                     <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-widest mb-1.5">Confirmar Contraseña</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Repita la clave"
-                      value={confirmPasswordInput}
-                      onChange={(e) => setConfirmPasswordInput(e.target.value)}
-                      className="w-full text-xs p-3 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showResetPassword ? "text" : "password"}
+                        required
+                        placeholder="Repita la clave"
+                        value={confirmPasswordInput}
+                        onChange={(e) => setConfirmPasswordInput(e.target.value)}
+                        className="w-full text-xs p-3 pr-10 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowResetPassword(!showResetPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white cursor-pointer"
+                        title={showResetPassword ? "Ocultar Contraseña" : "Mostrar Contraseña"}
+                      >
+                        {showResetPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex gap-2.5 pt-2">
@@ -1000,39 +1026,69 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
 
                   <div>
                     <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-widest mb-1.5">PIN de Seguridad (6 dígitos)</label>
-                    <input
-                      type="password"
-                      required
-                      maxLength={6}
-                      placeholder="Escribe tu PIN secreto"
-                      value={recoveryPinInput}
-                      onChange={(e) => setRecoveryPinInput(e.target.value.replace(/\D/g, ''))} // only digits
-                      className="w-full text-xs p-3 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono tracking-widest"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showRecoveryPassword ? "text" : "password"}
+                        required
+                        maxLength={6}
+                        placeholder="Escribe tu PIN secreto"
+                        value={recoveryPinInput}
+                        onChange={(e) => setRecoveryPinInput(e.target.value.replace(/\D/g, ''))} // only digits
+                        className="w-full text-xs p-3 pr-10 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono tracking-widest"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRecoveryPassword(!showRecoveryPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white cursor-pointer"
+                        title={showRecoveryPassword ? "Ocultar PIN" : "Mostrar PIN"}
+                      >
+                        {showRecoveryPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   <div>
                     <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-widest mb-1.5">Nueva Contraseña</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Mínimo 6 caracteres con letras, números y símbolos"
-                      value={recoveryNewPassword}
-                      onChange={(e) => setRecoveryNewPassword(e.target.value)}
-                      className="w-full text-xs p-3 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showRecoveryPassword ? "text" : "password"}
+                        required
+                        placeholder="Mínimo 6 caracteres con letras, números y símbolos"
+                        value={recoveryNewPassword}
+                        onChange={(e) => setNewPasswordInput ? setRecoveryNewPassword(e.target.value) : setRecoveryNewPassword(e.target.value)}
+                        className="w-full text-xs p-3 pr-10 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRecoveryPassword(!showRecoveryPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white cursor-pointer"
+                        title={showRecoveryPassword ? "Ocultar Contraseña" : "Mostrar Contraseña"}
+                      >
+                        {showRecoveryPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   <div>
                     <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-widest mb-1.5">Confirmar Nueva Contraseña</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Repita la clave para validar"
-                      value={recoveryConfirmPassword}
-                      onChange={(e) => setRecoveryConfirmPassword(e.target.value)}
-                      className="w-full text-xs p-3 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showRecoveryPassword ? "text" : "password"}
+                        required
+                        placeholder="Repita la clave para validar"
+                        value={recoveryConfirmPassword}
+                        onChange={(e) => setRecoveryConfirmPassword(e.target.value)}
+                        className="w-full text-xs p-3 pr-10 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRecoveryPassword(!showRecoveryPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white cursor-pointer"
+                        title={showRecoveryPassword ? "Ocultar Contraseña" : "Mostrar Contraseña"}
+                      >
+                        {showRecoveryPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex gap-2.5 pt-2">
@@ -1087,14 +1143,28 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
 
                   <div>
                     <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-widest mb-1.5 font-sans">Contraseña de Colaborador</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Contraseña de fábrica"
-                      value={passwordInput}
-                      onChange={(e) => setPasswordInput(e.target.value)}
-                      className="w-full text-xs p-3 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showLoginPassword ? "text" : "password"}
+                        required
+                        placeholder="Contraseña de fábrica"
+                        value={passwordInput}
+                        onChange={(e) => setPasswordInput(e.target.value)}
+                        className="w-full text-xs p-3 pr-10 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowLoginPassword(!showLoginPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white cursor-pointer"
+                        title={showLoginPassword ? "Ocultar Contraseña" : "Mostrar Contraseña"}
+                      >
+                        {showLoginPassword ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex justify-end pt-0.5">
@@ -1947,7 +2017,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                       onClick={() => {
                         setEditingWorker(null);
                         setWorkerForm({
-                          username: '', name: '', role: 'empleado', phone: '', is_active: true, plainPassword: ''
+                          username: '', name: '', role: 'empleado', phone: '', is_active: true, plainPassword: '', security_pin: ''
                         });
                         setWorkerPermissionsForm(['view_orders', 'process_orders']); // Default employee permissions
                         setWorkerMustResetPasswordForm(true); // Force password reset on first signin
@@ -2027,7 +2097,8 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                                           role: w.role,
                                           phone: w.phone || '',
                                           is_active: w.is_active,
-                                          plainPassword: '' 
+                                          plainPassword: '',
+                                          security_pin: w.security_pin || ''
                                         });
                                         setWorkerPermissionsForm(w.permissions || []);
                                         setWorkerMustResetPasswordForm(w.must_reset_password || false);
@@ -3513,6 +3584,20 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   value={workerForm.plainPassword || ''}
                   onChange={(e) => setWorkerForm({ ...workerForm, plainPassword: e.target.value })}
                   className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-650 uppercase tracking-widest mb-1">
+                  PIN de Seguridad para Recuperación (6 dígitos)
+                </label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  placeholder="Ej: 123456"
+                  value={workerForm.security_pin || ''}
+                  onChange={(e) => setWorkerForm({ ...workerForm, security_pin: e.target.value.replace(/\D/g, '') })}
+                  className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none font-mono tracking-widest"
                 />
               </div>
 
