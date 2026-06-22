@@ -282,7 +282,14 @@ create table if not exists support_inquiries (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- Habilitar Realtime para visitor_history, coupons, product_reviews y support_inquiries
+-- 12. TABLA DE CATEGORÍAS DE PRODUCTOS
+create table if not exists product_categories (
+  id varchar primary key,
+  name varchar unique not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- Habilitar Realtime para visitor_history, coupons, product_reviews, support_inquiries y product_categories
 do $$
 begin
   if not exists (
@@ -328,6 +335,18 @@ begin
     where p.pubname = 'supabase_realtime' and c.relname = 'support_inquiries'
   ) then
     alter publication supabase_realtime add table support_inquiries;
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_rel pr
+    join pg_publication p on p.oid = pr.prpubid
+    join pg_class c on c.oid = pr.prrelid
+    where p.pubname = 'supabase_realtime' and c.relname = 'product_categories'
+  ) then
+    alter publication supabase_realtime add table product_categories;
   end if;
 end $$;
 
@@ -431,7 +450,14 @@ create table if not exists support_inquiries (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 9. Activar Realtime para las nuevas tablas si no están agregadas
+-- 9. Crear tabla de categorías de productos si no existe
+create table if not exists product_categories (
+  id varchar primary key,
+  name varchar unique not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 10. Activar Realtime para las nuevas tablas si no están agregadas
 do $$
 begin
   if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
@@ -484,6 +510,18 @@ begin
     where p.pubname = 'supabase_realtime' and c.relname = 'support_inquiries'
   ) then
     alter publication supabase_realtime add table support_inquiries;
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_rel pr
+    join pg_publication p on p.oid = pr.prpubid
+    join pg_class c on c.oid = pr.prrelid
+    where p.pubname = 'supabase_realtime' and c.relname = 'product_categories'
+  ) then
+    alter publication supabase_realtime add table product_categories;
   end if;
 end $$;
 `;

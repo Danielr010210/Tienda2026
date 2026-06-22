@@ -115,6 +115,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   // New States: Categories, Support tickets, Active Clients
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [supportInquiries, setSupportInquiries] = useState<SupportInquiry[]>([]);
+  const [selectedInventoryCategory, setSelectedInventoryCategory] = useState<string>('all');
   
   // Visitor Tracking states
   const [visitorHistory, setVisitorHistory] = useState<VisitorHistoryEntry[]>([]);
@@ -2026,6 +2027,52 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   </div>
                 </div>
 
+                {/* Categorías como Pestañas una al lado de la otra */}
+                {categories.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 mb-6 border-b border-gray-150 pb-5">
+                    <button
+                      onClick={() => setSelectedInventoryCategory('all')}
+                      type="button"
+                      className={`px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer border flex items-center gap-1.5 active:scale-95 ${
+                        selectedInventoryCategory === 'all'
+                          ? 'bg-[#0f172a] text-white border-[#0f172a] shadow-sm'
+                          : 'bg-white text-slate-600 border-gray-200 hover:bg-slate-50 hover:text-slate-800'
+                      }`}
+                    >
+                      <span>📁 Mostrar Todo</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono ${
+                        selectedInventoryCategory === 'all' ? 'bg-white/20 text-white font-bold' : 'bg-slate-100 text-slate-500 font-bold'
+                      }`}>
+                        {products.length}
+                      </span>
+                    </button>
+                    {categories.map(cat => {
+                      const count = products.filter(p => p.category === cat.name).length;
+                      return (
+                        <button
+                          key={cat.id}
+                          onClick={() => setSelectedInventoryCategory(cat.name)}
+                          type="button"
+                          className={`px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer border flex items-center gap-1.5 active:scale-95 ${
+                            selectedInventoryCategory === cat.name
+                              ? 'bg-[#0f172a] text-white border-[#0f172a] shadow-sm'
+                              : 'bg-white text-slate-600 border-gray-200 hover:bg-slate-50 hover:text-slate-800'
+                          }`}
+                        >
+                          <span>{cat.name}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono ${
+                            selectedInventoryCategory === cat.name
+                              ? 'bg-white/20 text-white font-bold'
+                              : 'bg-slate-100 text-slate-500 font-bold'
+                          }`}>
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {/* Categorized listings */}
                 {categories.length === 0 ? (
                   <div className="bg-white p-8 text-center rounded-2xl border border-gray-200/60 shadow-sm">
@@ -2033,10 +2080,12 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   </div>
                 ) : (
                   <div className="space-y-8">
-                    {categories.map(cat => {
-                      const categoryProducts = products.filter(p => p.category === cat.name);
-                      return (
-                        <div key={cat.id} className="bg-white rounded-2xl border border-gray-200/60 shadow-sm overflow-hidden p-5 space-y-4">
+                    {categories
+                      .filter(cat => selectedInventoryCategory === 'all' ? true : selectedInventoryCategory === cat.name)
+                      .map(cat => {
+                        const categoryProducts = products.filter(p => p.category === cat.name);
+                        return (
+                          <div key={cat.id} className="bg-white rounded-2xl border border-gray-200/60 shadow-sm overflow-hidden p-5 space-y-4">
                           <div className="flex items-center justify-between border-b border-gray-100 pb-3">
                             <div className="flex items-center gap-2">
                               <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></span>

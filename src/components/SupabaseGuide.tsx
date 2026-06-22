@@ -182,10 +182,10 @@ export default function SupabaseGuide() {
             </p>
             <ul className="text-[11px] text-slate-600 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5 list-disc list-inside mt-1 font-medium bg-white p-3 rounded-lg border border-slate-100">
               <li><strong className="text-slate-800">Opiniones Integradas:</strong> Crea la tabla <code className="font-mono text-pink-600 bg-pink-50 px-1 rounded text-[10px]">product_reviews</code> para guardar comentarios calificados.</li>
+              <li><strong className="text-slate-800">Categorías en DB:</strong> Crea la tabla <code className="font-mono text-pink-600 bg-pink-50 px-1 rounded text-[10px]">product_categories</code> para organizar productos.</li>
               <li><strong className="text-slate-800">Cupones Directos:</strong> Añade la tabla <code className="font-mono text-pink-600 bg-pink-50 px-1 rounded text-[10px]">coupons</code> para estructurar códigos de descuento.</li>
               <li><strong className="text-slate-800">Monitoreo de Visitas:</strong> Agrega la tabla <code className="font-mono text-pink-600 bg-pink-50 px-1 rounded text-[10px]">visitor_history</code> para guardar los ingresos.</li>
               <li><strong className="text-slate-800">Soporte y Mensajería:</strong> Estructura la tabla <code className="font-mono text-pink-600 bg-pink-50 px-1 rounded text-[10px]">support_inquiries</code> para reclamos directos.</li>
-              <li><strong className="text-slate-800">Sincronización en Vivo:</strong> Configura la publicación de Supabase Realtime para que los cupones y visitas se actualicen en vivo.</li>
               <li><strong className="text-slate-800">Columnas de Telegram:</strong> Inserta nuevas variables para desactivar o activar bots de avisos.</li>
             </ul>
           </div>
@@ -200,11 +200,11 @@ export default function SupabaseGuide() {
             </p>
             <ul className="text-[11px] text-slate-600 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5 list-disc list-inside mt-1 font-medium bg-white p-3 rounded-lg border border-slate-100">
               <li><strong className="text-slate-800">Configuración Singleton:</strong> Almacena colores de la interfaz, logotipos, logos, monedas e IVA.</li>
-              <li><strong className="text-slate-800">Productos:</strong> Tabla optimizada para almacenar stock real, rebajas y divisas por productos.</li>
+              <li><strong className="text-slate-800">Productos y Categorías:</strong> Organización mediante tablas <code className="font-mono bg-slate-50 text-slate-700 rounded px-1 text-[10.5px]">products</code> y <code className="font-mono bg-slate-50 text-slate-700 rounded px-1 text-[10.5px]">product_categories</code> vinculadas.</li>
               <li><strong className="text-slate-800">Roles y Cuentas:</strong> Crea usuarios con hash para accesos seguros de Admin, Gerencia e Inventario.</li>
               <li><strong className="text-slate-800">Pedidos y Facturas:</strong> Historial contable inmutable con asignador automático de numeraciones.</li>
-              <li><strong className="text-slate-800">Opiniones, Visitas y Cupones:</strong> Todas las nuevas tablas pre-configuradas con integridad referencial.</li>
-              <li><strong className="text-slate-800">Suscripción Realtime:</strong> Habilita notificaciones en tiempo real para las 8 tablas comerciales principales.</li>
+              <li><strong className="text-slate-850">Opiniones, Visitas y Cupones:</strong> Todas las nuevas tablas pre-configuradas con integridad referencial.</li>
+              <li><strong className="text-slate-800">Suscripción Realtime:</strong> Habilita notificaciones en tiempo real para las 9 tablas comerciales principales de la tienda.</li>
             </ul>
           </div>
         )}

@@ -10,7 +10,7 @@ import { formatCurrency, generateInvoiceNumber } from '../utils';
 import { 
   ShoppingBag, Search, Tag, AlertTriangle, CheckCircle, SlidersHorizontal, 
   Send, Wifi, WifiOff, RefreshCw, Smartphone, MapPin, Sparkles, X, ChevronRight, CornerDownRight,
-  Star, Info, Eye, HelpCircle, Database
+  Star, Info, Eye, HelpCircle, Database, Phone, Mail, Music, Zap, Package, Compass, Ship, Anchor
 } from 'lucide-react';
 
 interface StorefrontProps {
@@ -77,6 +77,9 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
 
   // Logged-in Staff Session for Inline moderation
   const [loggedWorker, setLoggedWorker] = useState<any>(null);
+
+  // Business Card Popup state
+  const [isBusinessCardOpen, setIsBusinessCardOpen] = useState(false);
 
   // Dynamic Google Maps URL constructor supporting Address, Coords, or Custom Embed iframe
   const getGoogleMapsUrl = (): string => {
@@ -2215,6 +2218,260 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
               referrerPolicy="no-referrer"
               onClick={(e) => e.stopPropagation()}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Floating Personal Brand Card Badge */}
+      <div className="fixed bottom-6 right-6 z-[95] print:hidden">
+        <button
+          onClick={() => setIsBusinessCardOpen(true)}
+          type="button"
+          title="Ver Tarjeta de Contacto y Servicios"
+          className="flex items-center gap-2 bg-slate-950 border-2 border-[#fbbf24] text-white rounded-full p-3 px-4.5 shadow-[0_0_20px_rgba(251,191,36,0.3)] hover:shadow-[0_0_25px_rgba(251,191,36,0.6)] hover:border-yellow-400 active:scale-95 transition-all duration-300 cursor-pointer group focus:outline-none"
+        >
+          <div className="relative">
+            <Sparkles className="w-4 h-4 text-yellow-400 animate-pulse group-hover:rotate-12 transition-transform" />
+            <span className="absolute -top-1 -right-1 flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-450 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-500"></span>
+            </span>
+          </div>
+          <span className="text-xs font-black tracking-wider uppercase text-[#fbbf24] font-mono">Contacto & Servicios</span>
+        </button>
+      </div>
+
+      {/* High-Fidelity Custom Digital Postcard Modal Overlay */}
+      {isBusinessCardOpen && (
+        <div 
+          className="fixed inset-0 z-[110] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => setIsBusinessCardOpen(false)}
+        >
+          <div 
+            className="relative w-full max-w-[420px] bg-gradient-to-br from-[#0a0b0d] via-[#111317] to-[#060708] text-white rounded-2xl border-2 border-[#fbbf24]/50 shadow-2xl overflow-hidden p-5 md:p-6 animate-scale-up border-double shadow-yellow-500/5 select-none"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Corner Decorative Palm Leaves - Sourced from physical card image */}
+            {/* Top-Left Tropical Foliage */}
+            <div className="absolute -top-3 -left-3 w-28 h-24 text-emerald-800/20 pointer-events-none transform -rotate-12 select-none">
+              <svg viewBox="0 0 100 100" fill="currentColor" className="w-full h-full">
+                <path d="M10,95 C15,70 30,50 65,40 C55,42 45,46 35,52 C45,48 55,46 65,46 C50,51 38,59 28,68 C38,62 48,58 58,58 C45,63 35,72 25,82 C35,76 43,74 50,74 C40,79 30,88 20,98" />
+                <path d="M5,100 C15,80 35,65 75,60 C65,62 55,66 45,72 C55,68 65,66 75,66 C60,71 48,79 38,88 C48,82 58,78 68,78 C55,83 45,92 35,100" fillOpacity="0.7"/>
+              </svg>
+            </div>
+
+            {/* Bottom-Right Tropical Foliage */}
+            <div className="absolute -bottom-3 -right-3 w-28 h-24 text-emerald-800/20 pointer-events-none transform rotate-180 select-none">
+              <svg viewBox="0 0 100 100" fill="currentColor" className="w-full h-full">
+                <path d="M10,95 C15,70 30,50 65,40 C55,42 45,46 35,52 C45,48 55,46 65,46 C50,51 38,59 28,68 C38,62 48,58 58,58 C45,63 35,72 25,82 C35,76 43,74 50,74 C40,79 30,88 20,98" />
+                <path d="M5,100 C15,80 35,65 75,60 C65,62 55,66 45,72 C55,68 65,66 75,66 C60,71 48,79 38,88 C48,82 58,78 68,78 C55,83 45,92 35,100" fillOpacity="0.7"/>
+              </svg>
+            </div>
+
+            {/* Gold Highlight Blur Background Particle */}
+            <div className="absolute top-24 left-1/3 w-20 h-20 bg-yellow-500/10 rounded-full filter blur-2xl pointer-events-none"></div>
+
+            {/* Close Button */}
+            <button
+              onClick={() => setIsBusinessCardOpen(false)}
+              type="button"
+              className="absolute top-4 right-4 z-20 text-slate-400 hover:text-white bg-slate-900/50 hover:bg-slate-800/80 p-1.5 rounded-full border border-slate-700/50 shadow transition-all cursor-pointer"
+              title="Cerrar tarjeta"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* CARD CONTENT HEADER */}
+            <div className="flex justify-between items-start pt-2 gap-4">
+              {/* Left Column: Icon-Bound Contact Details (Styled just like physically shown) */}
+              <div className="space-y-3 flex-1 z-10">
+                {/* Phone */}
+                <a 
+                  href="tel:7862942257" 
+                  className="flex items-center gap-2.5 group/link cursor-pointer hover:opacity-90 max-w-max transition-all"
+                  title="Llamar teléfono"
+                >
+                  <div className="w-7 h-7 rounded-full bg-[#fbbf24] text-[#0f172a] shadow-md flex items-center justify-center shrink-0 border border-yellow-300">
+                    <Phone className="w-3.5 h-3.5 stroke-[2.5]" />
+                  </div>
+                  <span className="text-xs md:text-sm font-black tracking-wide font-mono text-slate-100 group-hover/link:text-[#fbbf24] transition-colors">
+                    786-294-2257
+                  </span>
+                </a>
+
+                {/* Email */}
+                <a 
+                  href="mailto:estilomiami@yahoo.com" 
+                  className="flex items-center gap-2.5 group/link cursor-pointer hover:opacity-90 max-w-max transition-all"
+                  title="Enviar correo"
+                >
+                  <div className="w-7 h-7 rounded-full bg-[#fbbf24] text-[#0f172a] shadow-md flex items-center justify-center shrink-0 border border-yellow-300">
+                    <Mail className="w-3.5 h-3.5 stroke-[2]" />
+                  </div>
+                  <span className="text-xs font-bold font-mono text-slate-100 group-hover/link:text-[#fbbf24] transition-colors break-all">
+                    estilomiami@yahoo.com
+                  </span>
+                </a>
+
+                {/* Address */}
+                <a 
+                  href="https://maps.google.com/?q=16335+NW+48th+Ave,+Miami+Gardens,+FL+33014" 
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-2.5 group/link cursor-pointer hover:opacity-90 max-w-max transition-all"
+                  title="Ver ubicación en Google Maps"
+                >
+                  <div className="w-7 h-7 rounded-full bg-[#fbbf24] text-[#0f172a] shadow-md flex items-center justify-center shrink-0 border border-yellow-300">
+                    <MapPin className="w-3.5 h-3.5 stroke-[2]" />
+                  </div>
+                  <div className="text-left font-mono">
+                    <span className="block text-[10px] font-black text-slate-100 group-hover/link:text-[#fbbf24] leading-tight max-w-[220px]">
+                      16335 NW 48th Ave
+                    </span>
+                    <span className="block text-[9px] text-slate-400 font-bold group-hover/link:text-[#fbbf24]/80 leading-none">
+                      Miami Gardens, FL 33014
+                    </span>
+                  </div>
+                </a>
+
+                {/* Tiktok */}
+                <a 
+                  href="https://www.tiktok.com/@cubanosenmiami2" 
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-2.5 group/link cursor-pointer hover:opacity-90 max-w-max transition-all"
+                  title="Ver perfil de TikTok"
+                >
+                  <div className="w-7 h-7 rounded-full bg-[#fbbf24] text-[#0f172a] shadow-md flex items-center justify-center shrink-0 border border-yellow-300">
+                    <Music className="w-3.5 h-3.5 stroke-[2.5]" />
+                  </div>
+                  <span className="text-xs font-extrabold font-mono text-slate-100 group-hover/link:text-[#fbbf24] transition-colors">
+                    @cubanosenmiami2
+                  </span>
+                </a>
+              </div>
+
+              {/* Right Column: Symmetrical Orúla Helm/Logo */}
+              <div className="flex flex-col items-center shrink-0 pr-2 z-10">
+                <div className="relative p-2.5 bg-slate-900/60 rounded-full border border-yellow-500/20 shadow-lg text-yellow-500 mb-1.5 flex items-center justify-center">
+                  <Compass className="w-10 h-10 animate-[spin_16s_linear_infinite] stroke-[1.25]" />
+                  <Anchor className="w-4 h-4 absolute text-yellow-500 opacity-60" />
+                </div>
+                <h3 className="font-['Playfair_Display'] text-xs tracking-[0.25em] font-black text-yellow-500 uppercase leading-none mt-1">
+                  ORÚLA
+                </h3>
+              </div>
+            </div>
+
+            {/* SECTION 1: SERVICIOS BANNER */}
+            <div className="relative my-5 z-10">
+              <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                <div className="w-full border-t border-[#fbbf24]/20"></div>
+              </div>
+              <div className="relative flex justify-center">
+                <span className="bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-slate-950 px-6 py-0.5 text-xs font-black tracking-[0.15em] uppercase shadow-md rounded-full border-y border-yellow-300 select-none">
+                  SERVICIOS:
+                </span>
+              </div>
+            </div>
+
+            {/* SERVICES IN LIVE COLUMNS VIEWPORTS */}
+            <div className="grid grid-cols-5 divide-x divide-yellow-500/25 text-center mt-2 z-10 position-relative">
+              {/* Item 1 */}
+              <div className="px-0.5 flex flex-col justify-between h-[82px]">
+                <div className="flex items-center justify-center grow">
+                  <Package className="w-6 h-6 text-[#fbbf24] stroke-[1.5]" />
+                </div>
+                <p className="text-[8.5px] font-extrabold text-slate-200 leading-tight uppercase tracking-tight mt-1.5 h-10 flex items-start justify-center">
+                  Envíos a Cuba
+                </p>
+              </div>
+
+              {/* Item 2 */}
+              <div className="px-0.5 flex flex-col justify-between h-[82px]">
+                <div className="flex items-center justify-center grow">
+                  <Ship className="w-6 h-6 text-[#fbbf24] stroke-[1.5] -rotate-12" />
+                </div>
+                <p className="text-[8.5px] font-extrabold text-slate-200 leading-tight uppercase tracking-tight mt-1.5 h-10 flex items-start justify-center">
+                  Viajes semanales
+                </p>
+              </div>
+
+              {/* Item 3 */}
+              <div className="px-0.5 flex flex-col justify-between h-[82px]">
+                <div className="flex items-center justify-center grow">
+                  <ShoppingBag className="w-6 h-6 text-[#fbbf24] stroke-[1.5]" />
+                </div>
+                <p className="text-[8.5px] font-extrabold text-slate-200 leading-tight uppercase tracking-tight mt-1.5 h-10 flex items-start justify-center">
+                  Compra Personalizada
+                </p>
+              </div>
+
+              {/* Item 4 */}
+              <div className="px-0.5 flex flex-col justify-between h-[82px]">
+                <div className="flex items-center justify-center grow">
+                  <Smartphone className="w-6 h-6 text-[#fbbf24] stroke-[1.5]" />
+                </div>
+                <p className="text-[8.5px] font-extrabold text-slate-200 leading-tight uppercase tracking-tight mt-1.5 h-10 flex items-start justify-center">
+                  Venta de Celulares
+                </p>
+              </div>
+
+              {/* Item 5 */}
+              <div className="px-0.5 flex flex-col justify-between h-[82px]">
+                <div className="flex items-center justify-center grow">
+                  <Zap className="w-6 h-6 text-[#fbbf24] stroke-[1.5]" />
+                </div>
+                <p className="text-[8.5px] font-extrabold text-slate-200 leading-tight uppercase tracking-tight mt-1.5 h-10 flex items-start justify-center">
+                  Plantas Eléctricas (EcoFlow)
+                </p>
+              </div>
+            </div>
+
+            {/* SECTION 2: ENVÍOS POR LIBRA BANNER */}
+            <div className="relative my-5 z-10">
+              <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                <div className="w-full border-t border-[#fbbf24]/20"></div>
+              </div>
+              <div className="relative flex justify-center">
+                <span className="bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-slate-950 px-5 py-0.5 text-[10.5px] font-black tracking-[0.12em] uppercase shadow-md rounded-full border-y border-yellow-300 select-none">
+                  ENVÍOS POR LIBRA
+                </span>
+              </div>
+            </div>
+
+            {/* WEIGHT SHIPMENTS TYPE Bullet point details */}
+            <div className="flex justify-around items-center bg-slate-900/50 backdrop-blur-xs py-2 rounded-xl border border-yellow-500/10 max-w-[340px] mx-auto z-10 relative">
+              <div className="flex items-center gap-1.5 text-xs font-black text-white hover:text-yellow-400 transition-colors">
+                <Zap className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500 shrink-0" />
+                <span>AÉREO</span>
+              </div>
+              <span className="w-1.5 h-1.5 bg-yellow-500/30 rounded-full"></span>
+              <div className="flex items-center gap-1.5 text-xs font-black text-white hover:text-yellow-400 transition-colors">
+                <Ship className="w-3.5 h-3.5 text-yellow-500 shrink-0" />
+                <span>MARÍTIMO</span>
+              </div>
+              <span className="w-1.5 h-1.5 bg-yellow-500/30 rounded-full"></span>
+              <div className="flex items-center gap-1.5 text-xs font-black text-white hover:text-yellow-400 transition-colors">
+                <Sparkles className="w-3.5 h-3.5 text-yellow-500 shrink-0" />
+                <span>EXPRESS</span>
+              </div>
+            </div>
+
+            {/* SEPARATOR DOTTED PATH TO PACKAGE */}
+            <div className="flex items-center justify-center gap-2 mt-5 text-[10px] text-slate-500 font-mono italic z-10 relative">
+              <span>Yo me encargo de la compra y del envío...</span>
+              <span className="text-yellow-500/50">➦</span>
+              <Package className="w-4 h-4 text-slate-400" />
+            </div>
+
+            {/* GORGEOUS AUTOGRAPH STYLE SLOGAN */}
+            <div className="text-center mt-2.5 pb-2 z-10 relative">
+              <span className="font-['Caveat'] text-2xl md:text-3xl text-[#fbbf24] font-bold tracking-wide block animate-pulse">
+                tú solo decides qué mandar.
+              </span>
+            </div>
+
           </div>
         </div>
       )}
