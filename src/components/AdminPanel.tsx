@@ -2026,132 +2026,270 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   </div>
                 </div>
 
-                {/* Grid listing */}
-                <div className="bg-white rounded-2xl border border-gray-200/60 shadow-sm overflow-hidden text-xs">
-                  <div className="overflow-x-auto font-sans">
-                    <table className="w-full text-left">
-                      <thead className="bg-[#FAFBFB] text-[10px] font-bold text-slate-500 uppercase border-b border-gray-100">
-                        <tr>
-                          <th className="px-5 py-3">Miniatura</th>
-                          <th className="px-5 py-3">Nombre / Categoría</th>
-                          <th className="px-5 py-3 text-right">Precio Base</th>
-                          <th className="px-5 py-3 text-center">Descuento Promo</th>
-                          <th className="px-5 py-3 text-right">Precio de Rebaja</th>
-                          <th className="px-5 py-3 text-center">Stock Físico</th>
-                          <th className="px-5 py-3 text-center">Visible Tienda</th>
-                          <th className="px-5 py-3 text-center">Acción</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {products.map(prod => {
-                          const currencySymbol = prod.currency || 'CUP';
-                          const discounted = prod.price * (1 - prod.promotion_discount / 100);
-                          const isLowST = prod.stock <= 5;
-
-                          return (
-                            <tr key={prod.id} className="hover:bg-slate-50/50">
-                              <td className="px-5 py-3">
-                                <img 
-                                  src={prod.image_url} 
-                                  alt="" 
-                                  referrerPolicy="no-referrer"
-                                  className="w-10 h-10 object-cover rounded-lg border border-gray-150"
-                                />
-                              </td>
-                              <td className="px-5 py-3">
-                                <span className="font-bold text-slate-800 block text-xs">{prod.name}</span>
-                                <span className="text-[10px] text-slate-400 bg-slate-100 font-bold px-1.5 py-0.5 rounded uppercase font-mono mt-1 inline-block">
-                                  {prod.category}
-                                </span>
-                              </td>
-                              <td className="px-5 py-3 text-right font-semibold text-slate-600">
-                                {formatCurrency(prod.price, currencySymbol)}
-                              </td>
-                              <td className="px-5 py-3 text-center">
-                                {prod.promotion_discount > 0 ? (
-                                  <span className="bg-red-50 text-red-600 font-black text-[9px] px-2 py-0.5 rounded border border-red-100">
-                                    -{prod.promotion_discount}%
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-400">Sin descuento</span>
-                                )}
-                              </td>
-                              <td className="px-5 py-3 text-right font-black text-slate-900">
-                                {prod.promotion_discount > 0 ? (
-                                  <span className="text-red-650">{formatCurrency(discounted, currencySymbol)}</span>
-                                ) : (
-                                  <span className="text-slate-500">{formatCurrency(prod.price, currencySymbol)}</span>
-                                )}
-                              </td>
-                              <td className="px-5 py-3 text-center">
-                                <span className={`font-black text-xs px-2.5 py-1 rounded-md leading-none ${
-                                  prod.stock === 0 
-                                    ? 'bg-red-150 text-red-700' 
-                                    : isLowST 
-                                    ? 'bg-amber-100 text-amber-800' 
-                                    : 'bg-emerald-50 text-emerald-850'
-                                }`}>
-                                  {prod.stock}
-                                </span>
-                              </td>
-                              <td className="px-5 py-3 text-center">
-                                <button
-                                  onClick={async () => {
-                                    try {
-                                      const updated = { ...prod, is_visible: !prod.is_visible };
-                                      await SupabaseService.saveProduct(updated);
-                                      await loadDatabaseData();
-                                      onProductsUpdated();
-                                      showSuccessNotification('Actualizado');
-                                    } catch (err) {
-                                      console.error(err);
-                                    }
-                                  }}
-                                  title="Presiona para alternar visibilidad sin eliminar"
-                                  className="mx-auto block"
-                                >
-                                  {prod.is_visible ? (
-                                    <div className="flex items-center gap-1 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-md border border-emerald-100 mx-auto font-semibold">
-                                      <Eye className="w-3.5 h-3.5" />
-                                      <span>Activo</span>
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center gap-1 text-slate-505 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-md border border-gray-200 mx-auto font-semibold">
-                                      <EyeOff className="w-3.5 h-3.5" />
-                                      <span>Oculto</span>
-                                    </div>
-                                  )}
-                                </button>
-                              </td>
-                              {/* Edit details trigger */}
-                              <td className="px-5 py-3 text-center">
-                                <div className="flex items-center justify-center gap-2">
-                                  <button
-                                    onClick={() => {
-                                      setEditingProduct(prod);
-                                      setProductForm(prod);
-                                      setIsProductModalOpen(true);
-                                    }}
-                                    className="p-1 px-2 border border-gray-200 hover:border-slate-400 rounded hover:bg-slate-50 text-slate-700 flex items-center gap-1 cursor-pointer font-bold"
-                                  >
-                                    <Edit2 className="w-3 h-3" />
-                                    <span>Editar</span>
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteProduct(prod.id)}
-                                    className="p-1 text-red-500 hover:bg-red-50 rounded border border-transparent hover:border-red-100 cursor-pointer"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                {/* Categorized listings */}
+                {categories.length === 0 ? (
+                  <div className="bg-white p-8 text-center rounded-2xl border border-gray-200/60 shadow-sm">
+                    <p className="text-slate-500 text-xs">No hay categorías configuradas aún. Crea una para comenzar a separar tus productos.</p>
                   </div>
-                </div>
+                ) : (
+                  <div className="space-y-8">
+                    {categories.map(cat => {
+                      const categoryProducts = products.filter(p => p.category === cat.name);
+                      return (
+                        <div key={cat.id} className="bg-white rounded-2xl border border-gray-200/60 shadow-sm overflow-hidden p-5 space-y-4">
+                          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></span>
+                              <h3 className="text-xs font-bold text-slate-800 tracking-tight uppercase">
+                                📁 Categoría: {cat.name}
+                              </h3>
+                              <span className="text-[10px] bg-slate-150 text-slate-600 font-extrabold px-2 py-0.5 rounded-full font-mono">
+                                {categoryProducts.length} {categoryProducts.length === 1 ? 'producto' : 'productos'}
+                              </span>
+                            </div>
+                            {categoryProducts.length === 0 && (
+                              <button
+                                onClick={() => {
+                                  setEditingProduct(null);
+                                  setProductForm({
+                                    name: '', price: 0, category: cat.name, image_url: '', stock: 10, is_visible: true, promotion_discount: 0, description: '', currency: settings?.currency || 'CUP'
+                                  });
+                                  setIsProductModalOpen(true);
+                                }}
+                                className="text-[10px] font-bold text-teal-600 hover:text-teal-700 bg-teal-50 hover:bg-teal-100 px-2.5 py-1 rounded transition-all cursor-pointer"
+                              >
+                                ➕ Añadir producto aquí
+                              </button>
+                            )}
+                          </div>
+
+                          {categoryProducts.length === 0 ? (
+                            <div className="p-4 bg-slate-50/50 rounded-xl text-center border border-dashed border-gray-250 text-slate-400 text-xs font-medium">
+                              No hay productos registrados en esta categoría comercial.
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto font-sans">
+                              <table className="w-full text-left">
+                                <thead className="bg-[#FAFBFB] text-[10px] font-bold text-slate-500 uppercase border-b border-gray-100">
+                                  <tr>
+                                    <th className="px-5 py-3">Miniatura</th>
+                                    <th className="px-5 py-3">Nombre</th>
+                                    <th className="px-5 py-3 text-right">Precio Base</th>
+                                    <th className="px-5 py-3 text-center">Descuento Promo</th>
+                                    <th className="px-5 py-3 text-right">Precio de Rebaja</th>
+                                    <th className="px-5 py-3 text-center">Stock Físico</th>
+                                    <th className="px-5 py-3 text-center">Visible Tienda</th>
+                                    <th className="px-5 py-3 text-center">Acción</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                  {categoryProducts.map(prod => {
+                                    const currencySymbol = prod.currency || 'CUP';
+                                    const discounted = prod.price * (1 - prod.promotion_discount / 100);
+                                    const isLowST = prod.stock <= 5;
+
+                                    return (
+                                      <tr key={prod.id} className="hover:bg-slate-50/50 text-slate-700">
+                                        <td className="px-5 py-3">
+                                          <img 
+                                            src={prod.image_url} 
+                                            alt="" 
+                                            referrerPolicy="no-referrer"
+                                            className="w-10 h-10 object-cover rounded-lg border border-gray-150"
+                                          />
+                                        </td>
+                                        <td className="px-5 py-2">
+                                          <span className="font-bold text-slate-800 block text-xs">{prod.name}</span>
+                                        </td>
+                                        <td className="px-5 py-3 text-right font-semibold text-slate-650">
+                                          {formatCurrency(prod.price, currencySymbol)}
+                                        </td>
+                                        <td className="px-5 py-3 text-center">
+                                          {prod.promotion_discount > 0 ? (
+                                            <span className="bg-red-50 text-red-650 font-black text-[9px] px-2 py-0.5 rounded border border-red-100">
+                                              -{prod.promotion_discount}%
+                                            </span>
+                                          ) : (
+                                            <span className="text-slate-400">Sin descuento</span>
+                                          )}
+                                        </td>
+                                        <td className="px-5 py-3 text-right font-black text-slate-900">
+                                          {prod.promotion_discount > 0 ? (
+                                            <span className="text-red-650 font-black">{formatCurrency(discounted, currencySymbol)}</span>
+                                          ) : (
+                                            <span className="text-slate-500 font-bold">{formatCurrency(prod.price, currencySymbol)}</span>
+                                          )}
+                                        </td>
+                                        <td className="px-5 py-3 text-center">
+                                          <span className={`font-black text-xs px-2.5 py-1 rounded-md leading-none ${
+                                            prod.stock === 0 
+                                              ? 'bg-red-150 text-red-700' 
+                                              : isLowST 
+                                              ? 'bg-amber-100 text-amber-800' 
+                                              : 'bg-emerald-50 text-emerald-850'
+                                          }`}>
+                                            {prod.stock}
+                                          </span>
+                                        </td>
+                                        <td className="px-5 py-3 text-center">
+                                          <button
+                                            onClick={async () => {
+                                              try {
+                                                const updated = { ...prod, is_visible: !prod.is_visible };
+                                                await SupabaseService.saveProduct(updated);
+                                                await loadDatabaseData();
+                                                onProductsUpdated();
+                                                showSuccessNotification('Actualizado');
+                                              } catch (err) {
+                                                console.error(err);
+                                              }
+                                            }}
+                                            title="Presiona para alternar visibilidad sin eliminar"
+                                            className="mx-auto block cursor-pointer transition-all active:scale-95"
+                                          >
+                                            {prod.is_visible ? (
+                                              <div className="flex items-center gap-1 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-md border border-emerald-100 mx-auto font-bold text-[10px]">
+                                                <Eye className="w-3 h-3" />
+                                                <span>Activo</span>
+                                              </div>
+                                            ) : (
+                                              <div className="flex items-center gap-1 text-slate-500 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-md border border-gray-200 mx-auto font-bold text-[10px]">
+                                                <EyeOff className="w-3 h-3" />
+                                                <span>Oculto</span>
+                                              </div>
+                                            )}
+                                          </button>
+                                        </td>
+                                        <td className="px-5 py-3 text-center">
+                                          <div className="flex items-center justify-center gap-1.5">
+                                            <button
+                                              onClick={() => {
+                                                setEditingProduct(prod);
+                                                setProductForm(prod);
+                                                setIsProductModalOpen(true);
+                                              }}
+                                              className="p-1 px-2 border border-gray-200 hover:border-slate-400 rounded hover:bg-slate-50 text-slate-700 flex items-center gap-1 cursor-pointer font-bold text-[10px]"
+                                            >
+                                              <Edit2 className="w-3 h-3" />
+                                              <span>Editar</span>
+                                            </button>
+                                            <button
+                                              onClick={() => handleDeleteProduct(prod.id)}
+                                              className="p-1 text-red-500 hover:bg-red-50 rounded border border-transparent hover:border-red-100 cursor-pointer"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {/* Alerta para productos huerfanos sin categoria valida */}
+                    {products.filter(p => !categories.some(c => c.name === p.category)).length > 0 && (
+                      <div className="bg-amber-50 rounded-2xl border border-amber-200 shadow-sm overflow-hidden p-5 space-y-4">
+                        <div className="flex items-center gap-2 border-b border-amber-100 pb-3">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 animate-bounce" />
+                          <h3 className="text-xs font-bold text-amber-850 tracking-tight uppercase">
+                            ⚠️ Productos con Categorías No Registradas / Huérfanas
+                          </h3>
+                        </div>
+                        <div className="overflow-x-auto font-sans">
+                          <table className="w-full text-left text-xs bg-white rounded-xl border border-amber-100">
+                            <thead className="bg-amber-50/50 text-[10px] font-bold text-amber-800 uppercase border-b border-amber-100">
+                              <tr>
+                                <th className="px-5 py-3">Miniatura</th>
+                                <th className="px-5 py-3">Nombre / Info</th>
+                                <th className="px-5 py-3 text-right">Precio</th>
+                                <th className="px-5 py-3 text-center">Stock</th>
+                                <th className="px-5 py-3 text-center font-bold">Re-asignar Categoría</th>
+                                <th className="px-5 py-3 text-center">Acción</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {products.filter(p => !categories.some(c => c.name === p.category)).map(prod => {
+                                const currencySymbol = prod.currency || 'CUP';
+                                return (
+                                  <tr key={prod.id} className="hover:bg-slate-50/50">
+                                    <td className="px-5 py-3">
+                                      <img 
+                                        src={prod.image_url} 
+                                        alt="" 
+                                        referrerPolicy="no-referrer"
+                                        className="w-10 h-10 object-cover rounded-lg border border-gray-150"
+                                      />
+                                    </td>
+                                    <td className="px-5 py-3">
+                                      <span className="font-bold text-slate-800 block text-xs">{prod.name}</span>
+                                      <span className="text-[9px] text-amber-700 bg-amber-100 font-extrabold px-2 py-0.5 rounded mt-1 inline-block uppercase">
+                                        {prod.category} (No Registrada)
+                                      </span>
+                                    </td>
+                                    <td className="px-5 py-3 text-right font-semibold text-slate-655">
+                                      {formatCurrency(prod.price, currencySymbol)}
+                                    </td>
+                                    <td className="px-5 py-3 text-center font-bold">
+                                      {prod.stock}
+                                    </td>
+                                    <td className="px-5 py-3 text-center">
+                                      <select
+                                        value={prod.category}
+                                        onChange={async (e) => {
+                                          try {
+                                            const updated = { ...prod, category: e.target.value };
+                                            await SupabaseService.saveProduct(updated);
+                                            await loadDatabaseData();
+                                            onProductsUpdated();
+                                            showSuccessNotification('Categoría reasignada');
+                                          } catch(err) {
+                                            console.error(err);
+                                          }
+                                        }}
+                                        className="text-[10px] p-1.5 bg-slate-50 border border-gray-200 rounded font-bold cursor-pointer text-slate-700"
+                                      >
+                                        <option value={prod.category} disabled>{prod.category}</option>
+                                        {categories.map(c => (
+                                          <option key={c.id} value={c.name}>{c.name}</option>
+                                        ))}
+                                      </select>
+                                    </td>
+                                    <td className="px-5 py-3 text-center">
+                                      <div className="flex items-center justify-center gap-2">
+                                        <button
+                                          onClick={() => {
+                                            setEditingProduct(prod);
+                                            setProductForm(prod);
+                                            setIsProductModalOpen(true);
+                                          }}
+                                          className="p-1 px-2 border border-blue-200 text-blue-600 hover:bg-blue-50 rounded font-bold text-[10px] cursor-pointer"
+                                        >
+                                          Editar
+                                        </button>
+                                        <button
+                                          onClick={() => handleDeleteProduct(prod.id)}
+                                          className="p-1 text-red-550 hover:bg-red-50 rounded"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

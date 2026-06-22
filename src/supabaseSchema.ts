@@ -260,7 +260,29 @@ create table if not exists coupons (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- Habilitar Realtime para visitor_history y cupones
+-- 10. TABLA DE OPINIONES DE PRODUCTOS (VALORACIONES)
+create table if not exists product_reviews (
+  id varchar primary key,
+  product_id uuid references products(id) on delete cascade,
+  reviewer_name varchar not null,
+  rating integer not null check (rating >= 1 and rating <= 5),
+  comment text not null,
+  is_hidden boolean not null default false,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 11. TABLA DE CONSULTAS Y RECLAMOS DE SOPORTE
+create table if not exists support_inquiries (
+  id varchar primary key,
+  customer_name varchar not null,
+  customer_phone varchar not null,
+  type varchar not null check (type in ('consulta', 'queja', 'problema')),
+  message text not null,
+  resolved boolean not null default false,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- Habilitar Realtime para visitor_history, coupons, product_reviews y support_inquiries
 do $$
 begin
   if not exists (
@@ -282,6 +304,30 @@ begin
     where p.pubname = 'supabase_realtime' and c.relname = 'coupons'
   ) then
     alter publication supabase_realtime add table coupons;
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_rel pr
+    join pg_publication p on p.oid = pr.prpubid
+    join pg_class c on c.oid = pr.prrelid
+    where p.pubname = 'supabase_realtime' and c.relname = 'product_reviews'
+  ) then
+    alter publication supabase_realtime add table product_reviews;
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_rel pr
+    join pg_publication p on p.oid = pr.prpubid
+    join pg_class c on c.oid = pr.prrelid
+    where p.pubname = 'supabase_realtime' and c.relname = 'support_inquiries'
+  ) then
+    alter publication supabase_realtime add table support_inquiries;
   end if;
 end $$;
 
@@ -363,7 +409,29 @@ create table if not exists visitor_history (
   city varchar not null default 'La Habana'
 );
 
--- 7. Activar Realtime para las nuevas tablas si no están agregadas
+-- 7. Crear tabla de opiniones de productos si no existe
+create table if not exists product_reviews (
+  id varchar primary key,
+  product_id uuid references products(id) on delete cascade,
+  reviewer_name varchar not null,
+  rating integer not null check (rating >= 1 and rating <= 5),
+  comment text not null,
+  is_hidden boolean not null default false,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 8. Crear tabla de consultas y reclamos de soporte si no existe
+create table if not exists support_inquiries (
+  id varchar primary key,
+  customer_name varchar not null,
+  customer_phone varchar not null,
+  type varchar not null check (type in ('consulta', 'queja', 'problema')),
+  message text not null,
+  resolved boolean not null default false,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 9. Activar Realtime para las nuevas tablas si no están agregadas
 do $$
 begin
   if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
@@ -392,6 +460,30 @@ begin
     where p.pubname = 'supabase_realtime' and c.relname = 'coupons'
   ) then
     alter publication supabase_realtime add table coupons;
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_rel pr
+    join pg_publication p on p.oid = pr.prpubid
+    join pg_class c on c.oid = pr.prrelid
+    where p.pubname = 'supabase_realtime' and c.relname = 'product_reviews'
+  ) then
+    alter publication supabase_realtime add table product_reviews;
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_rel pr
+    join pg_publication p on p.oid = pr.prpubid
+    join pg_class c on c.oid = pr.prrelid
+    where p.pubname = 'supabase_realtime' and c.relname = 'support_inquiries'
+  ) then
+    alter publication supabase_realtime add table support_inquiries;
   end if;
 end $$;
 `;

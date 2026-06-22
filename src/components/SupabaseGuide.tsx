@@ -141,26 +141,73 @@ export default function SupabaseGuide() {
       <div className="flex bg-slate-100 p-1.5 rounded-xl gap-2 mb-4">
         <button
           onClick={() => setActiveTab('update')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-bold rounded-lg transition-all cursor-pointer ${
             activeTab === 'update'
-              ? 'bg-white shadow text-teal-700 font-extrabold scale-[1.01]'
-              : 'text-slate-600 hover:text-slate-800'
+              ? 'bg-[#0f172a] text-white shadow font-black scale-[1.01]'
+              : 'text-slate-600 hover:text-slate-800 hover:bg-slate-200'
           }`}
         >
-          <ToggleLeft className="w-4 h-4 text-emerald-500 animate-pulse" />
-          <span>Script de Actualización (Faltan tablas/columnas de Telegram o diseño)</span>
+          <ToggleLeft className={`w-4 h-4 ${activeTab === 'update' ? 'text-emerald-400 animate-pulse' : 'text-slate-500'}`} />
+          <div className="text-left">
+            <span className="block font-black text-[11px] leading-tight">1. Script para Actualizar BD Existente</span>
+            <span className="block text-[9px] font-normal opacity-90">Agrega opiniones, cupones, monitoreo y Telegram</span>
+          </div>
         </button>
         <button
           onClick={() => setActiveTab('full')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-bold rounded-lg transition-all cursor-pointer ${
             activeTab === 'full'
-              ? 'bg-white shadow text-teal-700 font-extrabold scale-[1.01]'
-              : 'text-slate-600 hover:text-slate-800'
+              ? 'bg-[#0f172a] text-white shadow font-black scale-[1.01]'
+              : 'text-slate-600 hover:text-slate-800 hover:bg-slate-200'
           }`}
         >
-          <FileText className="w-4 h-4 text-indigo-500" />
-          <span>Esquema Completo Inicial (Base de Datos en Limpio)</span>
+          <FileText className={`w-4 h-4 ${activeTab === 'full' ? 'text-indigo-400' : 'text-slate-500'}`} />
+          <div className="text-left">
+            <span className="block font-black text-[11px] leading-tight">2. Script del Esquema Completo Desde Cero</span>
+            <span className="block text-[9px] font-normal opacity-90">Estructura base nueva con todas las tablas integradas</span>
+          </div>
         </button>
+      </div>
+
+      {/* Explicación Detallada de lo que hace el Script Seleccionado */}
+      <div className="mb-4 p-4 bg-slate-50 border border-slate-250/70 rounded-xl">
+        {activeTab === 'update' ? (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase bg-emerald-100 text-emerald-800 rounded font-mono">Mantenimiento y Nuevas Tablas</span>
+              <h4 className="text-xs font-black text-slate-800">¿Qué incluye y qué hace este Script de Actualización?</h4>
+            </div>
+            <p className="text-[11px] text-slate-600 leading-relaxed">
+              Este script está diseñado para <strong>tiendas que ya están funcionando</strong> y no quieren perder sus productos registrados ni pedidos anteriores. Modifica de forma segura tu base de datos aplicando los siguientes cambios:
+            </p>
+            <ul className="text-[11px] text-slate-600 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5 list-disc list-inside mt-1 font-medium bg-white p-3 rounded-lg border border-slate-100">
+              <li><strong className="text-slate-800">Opiniones Integradas:</strong> Crea la tabla <code className="font-mono text-pink-600 bg-pink-50 px-1 rounded text-[10px]">product_reviews</code> para guardar comentarios calificados.</li>
+              <li><strong className="text-slate-800">Cupones Directos:</strong> Añade la tabla <code className="font-mono text-pink-600 bg-pink-50 px-1 rounded text-[10px]">coupons</code> para estructurar códigos de descuento.</li>
+              <li><strong className="text-slate-800">Monitoreo de Visitas:</strong> Agrega la tabla <code className="font-mono text-pink-600 bg-pink-50 px-1 rounded text-[10px]">visitor_history</code> para guardar los ingresos.</li>
+              <li><strong className="text-slate-800">Soporte y Mensajería:</strong> Estructura la tabla <code className="font-mono text-pink-600 bg-pink-50 px-1 rounded text-[10px]">support_inquiries</code> para reclamos directos.</li>
+              <li><strong className="text-slate-800">Sincronización en Vivo:</strong> Configura la publicación de Supabase Realtime para que los cupones y visitas se actualicen en vivo.</li>
+              <li><strong className="text-slate-800">Columnas de Telegram:</strong> Inserta nuevas variables para desactivar o activar bots de avisos.</li>
+            </ul>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase bg-indigo-100 text-indigo-800 rounded font-mono">Inicios Limpios</span>
+              <h4 className="text-xs font-black text-slate-800">¿Qué hace el Script de Base de Datos Desde Cero?</h4>
+            </div>
+            <p className="text-[11px] text-slate-600 leading-relaxed">
+              Este script estructurará un <strong>proyecto nuevo de Supabase completamente desde cero</strong>. Si es la primera vez que creas tu base de datos elástica, este script creará todas las relaciones, índices de velocidad, llaves primarias y habilitará la sincronización en vivo. Crea la siguiente arquitectura completa:
+            </p>
+            <ul className="text-[11px] text-slate-600 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5 list-disc list-inside mt-1 font-medium bg-white p-3 rounded-lg border border-slate-100">
+              <li><strong className="text-slate-800">Configuración Singleton:</strong> Almacena colores de la interfaz, logotipos, logos, monedas e IVA.</li>
+              <li><strong className="text-slate-800">Productos:</strong> Tabla optimizada para almacenar stock real, rebajas y divisas por productos.</li>
+              <li><strong className="text-slate-800">Roles y Cuentas:</strong> Crea usuarios con hash para accesos seguros de Admin, Gerencia e Inventario.</li>
+              <li><strong className="text-slate-800">Pedidos y Facturas:</strong> Historial contable inmutable con asignador automático de numeraciones.</li>
+              <li><strong className="text-slate-800">Opiniones, Visitas y Cupones:</strong> Todas las nuevas tablas pre-configuradas con integridad referencial.</li>
+              <li><strong className="text-slate-800">Suscripción Realtime:</strong> Habilita notificaciones en tiempo real para las 8 tablas comerciales principales.</li>
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Database section script */}
@@ -171,27 +218,27 @@ export default function SupabaseGuide() {
             <span className="w-3 h-3 rounded-full bg-yellow-500"></span>
             <span className="w-3 h-3 rounded-full bg-green-500"></span>
             <span className="text-slate-400 font-mono text-[11px] ml-2">
-              {activeTab === 'full' ? 'crear_esquema_inicial.sql' : 'migrar_configuraciones_y_telegram.sql'}
+              {activeTab === 'full' ? '1_crear_esquema_completo.sql' : '2_migrar_y_agregar_tablas_nuevas.sql'}
             </span>
           </div>
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-white px-2.5 py-1 bg-slate-800 rounded transition-all cursor-pointer"
+            className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-white px-2.5 py-1 bg-slate-800 rounded transition-all cursor-pointer font-bold"
           >
             {copied ? (
               <>
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-emerald-400 font-medium">¡Copiado!</span>
+                <Check className="w-3.5 h-3.5 text-emerald-400 animate-bounce" />
+                <span className="text-emerald-400 font-extrabold">¡Copiado al portapapeles!</span>
               </>
             ) : (
               <>
-                <Clipboard className="w-3.5 h-3.5" />
+                <Clipboard className="w-3.5 h-3.5 text-slate-400" />
                 <span>Copiar Script</span>
               </>
             )}
           </button>
         </div>
-        <div className="p-4 bg-slate-950 font-mono text-xs text-slate-300 overflow-x-auto max-h-[350px]">
+        <div className="p-4 bg-slate-950 font-mono text-xs text-slate-300 overflow-x-auto max-h-[350px] relative">
           <pre className="whitespace-pre">{activeTab === 'full' ? SUPABASE_SQL_SCHEMA : SUPABASE_UPDATE_SQL_SCHEMA}</pre>
         </div>
       </div>
@@ -203,17 +250,18 @@ export default function SupabaseGuide() {
           <ol className="list-decimal list-inside space-y-1 mt-1 text-slate-700 font-sans">
             {activeTab === 'update' ? (
               <>
-                <li>Copia el <strong>Script de Actualización</strong> usando el botón de arriba de copiar.</li>
-                <li>Abre el panel de tu proyecto en <a href="https://supabase.com" target="_blank" rel="noreferrer" className="underline font-bold text-blue-800">supabase.com</a>.</li>
-                <li>Ve a <strong>"SQL Editor"</strong> en el menú lateral izquierdo, haz clic en <strong>"New Query"</strong>.</li>
-                <li>Pega el script y presiona el botón <strong>"Run"</strong> para agregar instantáneamente las tablas de Telegram y nuevas configuraciones.</li>
+                <li>Haz clic arriba en el botón <strong>"Copiar Script"</strong> para guardar el código en tu portapapeles.</li>
+                <li>Inicia sesión en tu panel de <a href="https://supabase.com" target="_blank" rel="noreferrer" className="underline font-bold text-blue-800">supabase.com</a> y abre tu proyecto.</li>
+                <li>Haga clic en la sección <strong>"SQL Editor"</strong> en el menú lateral izquierdo (icono con el símbolo <code className="font-mono bg-slate-100 px-1 rounded">&gt;_</code>).</li>
+                <li>Presiona en <strong>"New Query"</strong>, pega el código copiado y haz clic en el botón verde de <strong>"Run"</strong> en la parte inferior derecha.</li>
+                <li>¡Listo! El script agregará las tablas de opiniones, cupones y visitas sin borrar tus datos previos.</li>
               </>
             ) : (
               <>
-                <li>Crea un proyecto gratis en <a href="https://supabase.com" target="_blank" rel="noreferrer" className="underline font-bold text-blue-800">supabase.com</a>.</li>
+                <li>Crea un proyecto completamente nuevo y gratuito en <a href="https://supabase.com" target="_blank" rel="noreferrer" className="underline font-bold text-blue-800">supabase.com</a>.</li>
                 <li>En tu panel, ve a la sección <strong>"SQL Editor"</strong> en el menú lateral izquierdo.</li>
-                <li>Presiona <strong>"New Query"</strong>, pega el script de arriba que acabas de copiar y haz clic en <strong>"Run"</strong>.</li>
-                <li>¡Listo! Tu base de datos estará estructurada con todas las tablas e índices listos.</li>
+                <li>Crea una consulta pulsando <strong>"New Query"</strong>, pega el script inicial completo que copiaste arriba y haz clic en <strong>"Run"</strong>.</li>
+                <li>¡Fabuloso! Tu base de datos estará lista, estructurada con cuentas, productos y cupones al instante.</li>
               </>
             )}
           </ol>
