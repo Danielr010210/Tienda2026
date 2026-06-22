@@ -13,7 +13,7 @@ import {
   Users, ShoppingBag, ClipboardList, Settings, ShieldAlert, 
   TrendingUp, ArrowLeft, LogOut, Check, X, ShieldCheck, 
   Trash2, Plus, Edit2, AlertTriangle, Eye, EyeOff, LayoutDashboard, Clock, DollarSign, Database, MessageSquare, Tag,
-  Store, Send
+  Store, Send, RefreshCw
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -89,6 +89,9 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   const [quickShopName, setQuickShopName] = useState('');
   const [quickContactNumber, setQuickContactNumber] = useState('');
   const [quickAddress, setQuickAddress] = useState('');
+  const [quickWhatsAppNumber, setQuickWhatsAppNumber] = useState('');
+  const [quickBusinessHours, setQuickBusinessHours] = useState('');
+  const [quickShopDescription, setQuickShopDescription] = useState('');
 
   // Telegram credentials states ('telegram_bot' tab)
   const [tgBotToken, setTgBotToken] = useState('');
@@ -100,6 +103,9 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       setQuickShopName(settings.shop_name || '');
       setQuickContactNumber(settings.contact_number || '');
       setQuickAddress(settings.address || '');
+      setQuickWhatsAppNumber(settings.whatsapp_number || '');
+      setQuickBusinessHours(settings.business_hours || '');
+      setQuickShopDescription(settings.shop_description || '');
       setTgBotToken(settings.telegram_bot_token || '');
       setTgChatId(settings.telegram_chat_id || '');
       setTgEnabled(!!settings.telegram_enabled);
@@ -805,15 +811,20 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   };
 
   // Real-time quick save of store contact identity fields
+  const [isQuickSaving, setIsQuickSaving] = useState(false);
   const handleQuickSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!settings || !currentUser) return;
+    setIsQuickSaving(true);
     try {
       const updatedSettings = {
         ...settings,
         shop_name: quickShopName,
         contact_number: quickContactNumber,
         address: quickAddress,
+        whatsapp_number: quickWhatsAppNumber,
+        business_hours: quickBusinessHours,
+        shop_description: quickShopDescription,
       };
       
       await SupabaseService.saveSettings(updatedSettings, currentUser.name);
@@ -826,6 +837,9 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
           shop_name: quickShopName,
           contact_number: quickContactNumber,
           address: quickAddress,
+          whatsapp_number: quickWhatsAppNumber,
+          business_hours: quickBusinessHours,
+          shop_description: quickShopDescription,
         });
       }
       
@@ -835,6 +849,8 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     } catch (err: any) {
       console.error(err);
       alert('Error al actualizar datos de la tienda: ' + err.message);
+    } finally {
+      setIsQuickSaving(false);
     }
   };
 
@@ -1998,7 +2014,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                       onClick={() => {
                         setEditingProduct(null);
                         setProductForm({
-                          name: '', price: 0, category: categories[0]?.name || 'Tecnología', image_url: '', stock: 10, is_visible: true, promotion_discount: 0, description: '', currency: 'CUP'
+                          name: '', price: 0, category: categories[0]?.name || 'Tecnología', image_url: '', stock: 10, is_visible: true, promotion_discount: 0, description: '', currency: settings?.currency || 'CUP'
                         });
                         setIsProductModalOpen(true);
                       }}
@@ -3342,14 +3358,52 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                       </div>
 
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Teléfono Público de Soporte / Contacto</label>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Descripción Comercial de la Tienda</label>
+                        <textarea
+                          rows={2}
+                          required
+                          value={quickShopDescription}
+                          onChange={(e) => setQuickShopDescription(e.target.value)}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-medium text-slate-800 resize-none animate-fade-in"
+                          placeholder="Ej. Compra rápida, segura y al mejor precio."
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Teléfono Público de Soporte / Contacto</label>
+                          <input
+                            type="text"
+                            required
+                            value={quickContactNumber}
+                            onChange={(e) => setQuickContactNumber(e.target.value)}
+                            className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-bold text-slate-800"
+                            placeholder="Ej. +53 51234567"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Enlace / Número de WhatsApp WhatsApp (Formato Internacional sin símbolos)</label>
+                          <input
+                            type="text"
+                            required
+                            value={quickWhatsAppNumber}
+                            onChange={(e) => setQuickWhatsAppNumber(e.target.value)}
+                            className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-bold text-slate-800 animate-fade-in"
+                            placeholder="Ej. 5351234567"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Horario de Trabajo / Horas de Operación</label>
                         <input
                           type="text"
                           required
-                          value={quickContactNumber}
-                          onChange={(e) => setQuickContactNumber(e.target.value)}
-                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-bold text-slate-800"
-                          placeholder="Ej. +53 51234567"
+                          value={quickBusinessHours}
+                          onChange={(e) => setQuickBusinessHours(e.target.value)}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-bold text-slate-800 animate-fade-in"
+                          placeholder="Ej. Lunes a Sábado: 8:00 AM - 6:00 PM"
                         />
                       </div>
 
@@ -3370,9 +3424,19 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   <div className="flex justify-end">
                     <button
                       type="submit"
-                      className="bg-teal-600 hover:bg-teal-700 text-white font-bold px-6 py-2.5 rounded-xl shadow-md cursor-pointer transition-all active:scale-95"
+                      disabled={isQuickSaving}
+                      className="bg-teal-600 hover:bg-teal-700 text-white font-bold px-6 py-2.5 rounded-xl shadow-md cursor-pointer transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2"
                     >
-                      💾 Guardar Datos en Vivo
+                      {isQuickSaving ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Guardando cambios...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>💾 Guardar Datos en Vivo</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </form>

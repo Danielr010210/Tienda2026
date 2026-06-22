@@ -21,6 +21,31 @@ create table if not exists shop_settings (
   business_hours varchar default 'Lunes a Sábado: 8:00 AM - 6:00 PM',
   address varchar default 'San José, Costa Rica',
   currency varchar default '$',
+  about_visible boolean default true,
+  about_text text,
+  smart_search_text varchar default 'Búsqueda Inteligente',
+  shop_logo_url varchar default '',
+  theme_preset varchar default 'classic',
+  color_primary varchar default '#0f172a',
+  color_header_bg varchar default '#ffffff',
+  color_page_bg varchar default '#F8F9FA',
+  color_text varchar default '#1e293b',
+  color_card_bg varchar default '#ffffff',
+  font_family varchar default 'Inter',
+  shop_logo_type varchar default 'text',
+  shop_logo_val varchar default 'M',
+  currencies text[] default array['CUP', 'USD', 'EUR', 'MLC']::text[],
+  banner_visible boolean default false,
+  banner_text text default '',
+  banner_bg varchar default '#1e293b',
+  banner_text_color varchar default '#ffffff',
+  loading_text text default 'Actualizando, por favor espere...',
+  maps_option varchar default 'address',
+  maps_coords varchar default '',
+  maps_embed_url varchar default '',
+  telegram_bot_token varchar default '',
+  telegram_chat_id varchar default '',
+  telegram_enabled boolean default false,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -67,6 +92,33 @@ create table if not exists workers (
 alter table workers add column if not exists must_reset_password boolean not null default true;
 alter table workers add column if not exists permissions text[] default '{}'::text[];
 alter table products add column if not exists currency varchar default 'CUP';
+
+-- Compatibilidad para shop_settings existentes (nuevas columnas)
+alter table shop_settings add column if not exists about_visible boolean default true;
+alter table shop_settings add column if not exists about_text text;
+alter table shop_settings add column if not exists smart_search_text varchar default 'Búsqueda Inteligente';
+alter table shop_settings add column if not exists shop_logo_url varchar default '';
+alter table shop_settings add column if not exists theme_preset varchar default 'classic';
+alter table shop_settings add column if not exists color_primary varchar default '#0f172a';
+alter table shop_settings add column if not exists color_header_bg varchar default '#ffffff';
+alter table shop_settings add column if not exists color_page_bg varchar default '#F8F9FA';
+alter table shop_settings add column if not exists color_text varchar default '#1e293b';
+alter table shop_settings add column if not exists color_card_bg varchar default '#ffffff';
+alter table shop_settings add column if not exists font_family varchar default 'Inter';
+alter table shop_settings add column if not exists shop_logo_type varchar default 'text';
+alter table shop_settings add column if not exists shop_logo_val varchar default 'M';
+alter table shop_settings add column if not exists currencies text[] default array['CUP', 'USD', 'EUR', 'MLC']::text[];
+alter table shop_settings add column if not exists banner_visible boolean default false;
+alter table shop_settings add column if not exists banner_text text default '';
+alter table shop_settings add column if not exists banner_bg varchar default '#1e293b';
+alter table shop_settings add column if not exists banner_text_color varchar default '#ffffff';
+alter table shop_settings add column if not exists loading_text text default 'Actualizando, por favor espere...';
+alter table shop_settings add column if not exists maps_option varchar default 'address';
+alter table shop_settings add column if not exists maps_coords varchar default '';
+alter table shop_settings add column if not exists maps_embed_url varchar default '';
+alter table shop_settings add column if not exists telegram_bot_token varchar default '';
+alter table shop_settings add column if not exists telegram_chat_id varchar default '';
+alter table shop_settings add column if not exists telegram_enabled boolean default false;
 
 -- Insertar trabajadores por defecto si no existen:
 -- Admin: Admin123!
@@ -240,4 +292,106 @@ end $$;
 -- ('iPhone 15 Pro Max', 'Apple Smartphone 256GB', 1199.00, 'Tecnología', 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=500', 8, true, 10),
 -- ('Auriculares Sony WH-1000XM5', 'Cancelación de Ruido Activa', 349.99, 'Audio', 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500', 3, true, 0),
 -- ('Remera Minimalista Blanca', '100% Algodón Orgánico', 29.99, 'Moda', 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500', 15, true, 0);
+`;
+
+export const SUPABASE_UPDATE_SQL_SCHEMA = `-- =========================================================
+-- SCRIPT DE ACTUALIZACIÓN / MIGRACIÓN DE BASE DE DATOS
+-- Ejecuta este script si ya tenías la base de datos de antes
+-- y deseas agregar las nuevas columnas para configuraciones (Telegram, etc.)
+-- =========================================================
+
+-- 1. Agregar nuevas columnas de compatibilidad para trabajadores (workers)
+alter table workers add column if not exists must_reset_password boolean not null default true;
+alter table workers add column if not exists permissions text[] default '{}'::text[];
+
+-- 2. Agregar nueva columna de moneda en productos (products)
+alter table products add column if not exists currency varchar default 'CUP';
+
+-- 3. Agregar nuevas columnas para shop_settings (Configuraciones de la Tienda y API Telegram)
+alter table shop_settings add column if not exists about_visible boolean default true;
+alter table shop_settings add column if not exists about_text text;
+alter table shop_settings add column if not exists smart_search_text varchar default 'Búsqueda Inteligente';
+alter table shop_settings add column if not exists shop_logo_url varchar default '';
+alter table shop_settings add column if not exists theme_preset varchar default 'classic';
+alter table shop_settings add column if not exists color_primary varchar default '#0f172a';
+alter table shop_settings add column if not exists color_header_bg varchar default '#ffffff';
+alter table shop_settings add column if not exists color_page_bg varchar default '#F8F9FA';
+alter table shop_settings add column if not exists color_text varchar default '#1e293b';
+alter table shop_settings add column if not exists color_card_bg varchar default '#ffffff';
+alter table shop_settings add column if not exists font_family varchar default 'Inter';
+alter table shop_settings add column if not exists shop_logo_type varchar default 'text';
+alter table shop_settings add column if not exists shop_logo_val varchar default 'M';
+alter table shop_settings add column if not exists currencies text[] default array['CUP', 'USD', 'EUR', 'MLC']::text[];
+alter table shop_settings add column if not exists banner_visible boolean default false;
+alter table shop_settings add column if not exists banner_text text default '';
+alter table shop_settings add column if not exists banner_bg varchar default '#1e293b';
+alter table shop_settings add column if not exists banner_text_color varchar default '#ffffff';
+alter table shop_settings add column if not exists loading_text text default 'Actualizando, por favor espere...';
+alter table shop_settings add column if not exists maps_option varchar default 'address';
+alter table shop_settings add column if not exists maps_coords varchar default '';
+alter table shop_settings add column if not exists maps_embed_url varchar default '';
+alter table shop_settings add column if not exists telegram_bot_token varchar default '';
+alter table shop_settings add column if not exists telegram_chat_id varchar default '';
+alter table shop_settings add column if not exists telegram_enabled boolean default false;
+
+-- 4. Asegurar que el registro singleton existe
+insert into shop_settings (id, shop_name, shop_description)
+values ('singleton', 'Boutique Minimal', 'La experiencia de compra más rápida de la web.')
+on conflict (id) do nothing;
+
+-- 5. Crear tabla de cupones si no existe
+create table if not exists coupons (
+  id uuid primary key default uuid_generate_v4(),
+  code varchar unique not null,
+  discount_type varchar not null check (discount_type in ('percent', 'fixed')),
+  discount_value numeric(10,2) not null check (discount_value > 0),
+  is_active boolean not null default true,
+  min_purchase_amount numeric(10,2) not null default 0 check (min_purchase_amount >= 0),
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 6. Crear tabla de historial de visitantes si no existe
+create table if not exists visitor_history (
+  id uuid primary key default uuid_generate_v4(),
+  ip varchar not null,
+  timestamp timestamp with time zone default timezone('utc'::text, now()) not null,
+  user_agent text not null,
+  browser varchar not null,
+  os varchar not null,
+  page_visited varchar not null,
+  country varchar not null default 'Cuba',
+  city varchar not null default 'La Habana'
+);
+
+-- 7. Activar Realtime para las nuevas tablas si no están agregadas
+do $$
+begin
+  if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    create publication supabase_realtime;
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_rel pr
+    join pg_publication p on p.oid = pr.prpubid
+    join pg_class c on c.oid = pr.prrelid
+    where p.pubname = 'supabase_realtime' and c.relname = 'visitor_history'
+  ) then
+    alter publication supabase_realtime add table visitor_history;
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_rel pr
+    join pg_publication p on p.oid = pr.prpubid
+    join pg_class c on c.oid = pr.prrelid
+    where p.pubname = 'supabase_realtime' and c.relname = 'coupons'
+  ) then
+    alter publication supabase_realtime add table coupons;
+  end if;
+end $$;
 `;

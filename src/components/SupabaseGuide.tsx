@@ -4,9 +4,9 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { SUPABASE_SQL_SCHEMA } from '../supabaseSchema';
+import { SUPABASE_SQL_SCHEMA, SUPABASE_UPDATE_SQL_SCHEMA } from '../supabaseSchema';
 import { SupabaseService } from '../supabaseService';
-import { Clipboard, Check, Database, HelpCircle, ShieldAlert, Wifi, Key } from 'lucide-react';
+import { Clipboard, Check, Database, HelpCircle, ShieldAlert, Wifi, Key, FileText, ToggleLeft } from 'lucide-react';
 
 export default function SupabaseGuide() {
   const [copied, setCopied] = useState(false);
@@ -14,6 +14,7 @@ export default function SupabaseGuide() {
   const [key, setKey] = useState('');
   const [mode, setMode] = useState<'mock' | 'real'>('mock');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'full' | 'update'>('update');
 
   useEffect(() => {
     const creds = SupabaseService.getCredentials();
@@ -23,7 +24,8 @@ export default function SupabaseGuide() {
   }, []);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(SUPABASE_SQL_SCHEMA);
+    const textToCopy = activeTab === 'full' ? SUPABASE_SQL_SCHEMA : SUPABASE_UPDATE_SQL_SCHEMA;
+    navigator.clipboard.writeText(textToCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -135,6 +137,32 @@ export default function SupabaseGuide() {
         </div>
       </div>
 
+      {/* Selector de tipo de Esquema / Actualización */}
+      <div className="flex bg-slate-100 p-1.5 rounded-xl gap-2 mb-4">
+        <button
+          onClick={() => setActiveTab('update')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+            activeTab === 'update'
+              ? 'bg-white shadow text-teal-700 font-extrabold scale-[1.01]'
+              : 'text-slate-600 hover:text-slate-800'
+          }`}
+        >
+          <ToggleLeft className="w-4 h-4 text-emerald-500 animate-pulse" />
+          <span>Script de Actualización (Faltan tablas/columnas de Telegram o diseño)</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('full')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+            activeTab === 'full'
+              ? 'bg-white shadow text-teal-700 font-extrabold scale-[1.01]'
+              : 'text-slate-600 hover:text-slate-800'
+          }`}
+        >
+          <FileText className="w-4 h-4 text-indigo-500" />
+          <span>Esquema Completo Inicial (Base de Datos en Limpio)</span>
+        </button>
+      </div>
+
       {/* Database section script */}
       <div className="border border-gray-200 rounded-xl overflow-hidden">
         <div className="bg-slate-900 px-4 py-3 flex items-center justify-between">
@@ -142,7 +170,9 @@ export default function SupabaseGuide() {
             <span className="w-3 h-3 rounded-full bg-red-500"></span>
             <span className="w-3 h-3 rounded-full bg-yellow-500"></span>
             <span className="w-3 h-3 rounded-full bg-green-500"></span>
-            <span className="text-slate-400 font-mono text-[11px] ml-2">instalar_esquema_supabase.sql</span>
+            <span className="text-slate-400 font-mono text-[11px] ml-2">
+              {activeTab === 'full' ? 'crear_esquema_inicial.sql' : 'migrar_configuraciones_y_telegram.sql'}
+            </span>
           </div>
           <button
             onClick={handleCopy}
@@ -162,19 +192,30 @@ export default function SupabaseGuide() {
           </button>
         </div>
         <div className="p-4 bg-slate-950 font-mono text-xs text-slate-300 overflow-x-auto max-h-[350px]">
-          <pre className="whitespace-pre">{SUPABASE_SQL_SCHEMA}</pre>
+          <pre className="whitespace-pre">{activeTab === 'full' ? SUPABASE_SQL_SCHEMA : SUPABASE_UPDATE_SQL_SCHEMA}</pre>
         </div>
       </div>
 
       <div className="mt-4 p-4 bg-blue-50/40 border border-blue-100 rounded-xl text-xs text-blue-800 leading-relaxed flex items-start gap-2.5">
         <HelpCircle className="w-4 h-4 shrink-0 mt-0.5 text-blue-600" />
         <div>
-          <strong>¿Cómo instalarlo en Supabase?</strong>
+          <strong>¿Cómo instalar o actualizar en Supabase?</strong>
           <ol className="list-decimal list-inside space-y-1 mt-1 text-slate-700 font-sans">
-            <li>Crea un proyecto gratis en <a href="https://supabase.com" target="_blank" rel="noreferrer" className="underline font-bold text-blue-800">supabase.com</a>.</li>
-            <li>En tu panel, ve a la sección <strong>"SQL Editor"</strong> en el menú lateral izquierdo.</li>
-            <li>Presiona <strong>"New Query"</strong>, pega el script de arriba que acabas de copiar y haz clic en <strong>"Run"</strong>.</li>
-            <li>¡Listo! Tu base de datos estará estructurada con todas las tablas, índices, llaves primarias, integridad de usuario y triggers listos para usar en tiempo real.</li>
+            {activeTab === 'update' ? (
+              <>
+                <li>Copia el <strong>Script de Actualización</strong> usando el botón de arriba de copiar.</li>
+                <li>Abre el panel de tu proyecto en <a href="https://supabase.com" target="_blank" rel="noreferrer" className="underline font-bold text-blue-800">supabase.com</a>.</li>
+                <li>Ve a <strong>"SQL Editor"</strong> en el menú lateral izquierdo, haz clic en <strong>"New Query"</strong>.</li>
+                <li>Pega el script y presiona el botón <strong>"Run"</strong> para agregar instantáneamente las tablas de Telegram y nuevas configuraciones.</li>
+              </>
+            ) : (
+              <>
+                <li>Crea un proyecto gratis en <a href="https://supabase.com" target="_blank" rel="noreferrer" className="underline font-bold text-blue-800">supabase.com</a>.</li>
+                <li>En tu panel, ve a la sección <strong>"SQL Editor"</strong> en el menú lateral izquierdo.</li>
+                <li>Presiona <strong>"New Query"</strong>, pega el script de arriba que acabas de copiar y haz clic en <strong>"Run"</strong>.</li>
+                <li>¡Listo! Tu base de datos estará estructurada con todas las tablas e índices listos.</li>
+              </>
+            )}
           </ol>
         </div>
       </div>

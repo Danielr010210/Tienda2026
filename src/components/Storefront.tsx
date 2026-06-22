@@ -662,7 +662,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
     const discountAmount = (successOrder as any).discount_amount;
     let couponDecoration = '';
     if (couponApplied && discountAmount > 0) {
-      couponDecoration = `*Cupón Aplicado:* ${couponApplied} (-CUP ${discountAmount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})\n----------------------------------------\n`;
+      couponDecoration = `*Cupón Aplicado:* ${couponApplied} (-${settings?.currency || 'CUP'} ${discountAmount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})\n----------------------------------------\n`;
     }
 
     const messageText = `*PEDIDO NUEVO - ${successOrder.invoice_number}${isMockModeLabel}*\n` +
@@ -1353,7 +1353,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
                     <div className="flex items-center justify-between bg-teal-50 border border-teal-150 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-teal-850">
                       <div className="flex items-center gap-1">
                         <span className="font-extrabold tracking-wide uppercase font-mono bg-teal-100 px-1.5 py-0.5 rounded text-[10px]">{appliedCoupon.code}</span>
-                        <span className="text-slate-650">-{appliedCoupon.discount_type === 'percent' ? `${appliedCoupon.discount_value}%` : `${appliedCoupon.discount_value} CUP`}</span>
+                        <span className="text-slate-650">-{appliedCoupon.discount_type === 'percent' ? `${appliedCoupon.discount_value}%` : `${appliedCoupon.discount_value} ${settings?.currency || 'CUP'}`}</span>
                       </div>
                       <button
                         onClick={handleRemoveCoupon}
