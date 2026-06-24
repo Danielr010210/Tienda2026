@@ -1,6 +1,8 @@
 {
-  "name": "Supabase Minimalist Store",
-  "description": "Una tienda web minimalista y optimizada con panel de administración multi-rol (Admin, Gerente, Empleado), sincronización en tiempo real, protección de intentos de login y base de datos Supabase.",
+  "name": "Cubanos en Miami Shop",
+  "description": "Tienda online premium con panel de administración inteligente, control de stock, integraciones con Supabase y Telegram.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
