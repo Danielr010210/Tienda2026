@@ -31,19 +31,131 @@ const CATEGORY_DELIMITER = ':::';
 export class SupabaseService {
   // --- PRODUCTS ---
   static async getProducts(): Promise<Product[]> {
+    let products: Product[] = [];
+    let fetched = false;
+
     if (supabase) {
       try {
         const { data, error } = await supabase.from('products').select('*').order('created_at', { ascending: false });
         if (!error && data) {
+          products = data;
+          fetched = true;
           setLocalStorage('shop_products', data);
-          return data;
+        } else {
+          console.warn('Supabase getProducts error, falling back to local storage:', error);
         }
-        console.warn('Supabase getProducts error, falling back to local storage:', error);
       } catch (e) {
         console.error('Supabase getProducts exception:', e);
       }
     }
-    return getLocalStorage<Product[]>('shop_products', []);
+
+    if (!fetched) {
+      products = getLocalStorage<Product[]>('shop_products', []);
+    }
+
+    // Default products fallback with real CDN images matching categories
+    if (products.length === 0) {
+      products = [
+        {
+          id: 'prod-1',
+          name: 'Arroz Extra Premium (Grano Largo)',
+          description: 'Arroz blanco de grano largo extra pulido, libre de impurezas. Calidad de exportación.',
+          price: 6.50,
+          category: 'Alimentos',
+          image_url: 'https://cdn.jsdelivr.net/gh/webbrother10/cdn-fotos/alimentos/arroz.jpg',
+          stock: 45,
+          is_visible: true,
+          promotion_discount: 10,
+          currency: 'USD'
+        },
+        {
+          id: 'prod-2',
+          name: 'Aceite de Girasol Sol',
+          description: 'Aceite vegetal refinado de girasol, ideal para cocinar todo tipo de alimentos.',
+          price: 4.80,
+          category: 'Alimentos',
+          image_url: 'https://cdn.jsdelivr.net/gh/webbrother10/cdn-fotos/alimentos/aceite.jpg',
+          stock: 32,
+          is_visible: true,
+          promotion_discount: 0,
+          currency: 'USD'
+        },
+        {
+          id: 'prod-3',
+          name: 'Split Royal de 1 Tonelada (12000 BTU)',
+          description: 'Aire acondicionado tipo Split Royal, 110V/220V, alta eficiencia, ultra silencioso.',
+          price: 450.00,
+          category: 'Equipos Electrónicos',
+          image_url: 'https://cdn.jsdelivr.net/gh/webbrother10/cdn-fotos/equipos/split.jpg',
+          stock: 8,
+          is_visible: true,
+          promotion_discount: 5,
+          currency: 'USD'
+        },
+        {
+          id: 'prod-4',
+          name: 'Televisor LED Smart TV 32"',
+          description: 'Pantalla HD de alta definición, conexiones HDMI, USB y Wi-Fi para aplicaciones de streaming.',
+          price: 280.00,
+          category: 'Equipos Electrónicos',
+          image_url: 'https://cdn.jsdelivr.net/gh/webbrother10/cdn-fotos/equipos/tv.jpg',
+          stock: 4,
+          is_visible: true,
+          promotion_discount: 0,
+          currency: 'USD'
+        },
+        {
+          id: 'prod-5',
+          name: 'Perfume Clásico Alicia',
+          description: 'Fragancia mítica cubana con exquisitas notas florales y frutales para el día a día.',
+          price: 22.00,
+          category: 'PERFUMERÍA',
+          image_url: 'https://cdn.jsdelivr.net/gh/webbrother10/cdn-fotos/perfumeria/alicia.jpg',
+          stock: 15,
+          is_visible: true,
+          promotion_discount: 15,
+          currency: 'USD'
+        },
+        {
+          id: 'prod-6',
+          name: 'Loción de Cuerpo Coral',
+          description: 'Crema hidratante corporal con fragancia marina, suaviza y refresca la piel.',
+          price: 12.00,
+          category: 'PERFUMERÍA',
+          image_url: 'https://cdn.jsdelivr.net/gh/webbrother10/cdn-fotos/perfumeria/locion.jpg',
+          stock: 20,
+          is_visible: true,
+          promotion_discount: 0,
+          currency: 'USD'
+        },
+        {
+          id: 'prod-7',
+          name: 'Jabón de Tocador Lux Suave',
+          description: 'Jabón cremoso enriquecido con extractos florales para una piel tersa y perfumada.',
+          price: 1.50,
+          category: 'Aseo Personal',
+          image_url: 'https://cdn.jsdelivr.net/gh/webbrother10/cdn-fotos/aseo/jabon.jpg',
+          stock: 120,
+          is_visible: true,
+          promotion_discount: 0,
+          currency: 'USD'
+        },
+        {
+          id: 'prod-8',
+          name: 'Dentífrico Colgate Triple Acción',
+          description: 'Pasta dental con flúor para protección anticaries total, aliento fresco y dientes blancos.',
+          price: 3.20,
+          category: 'Aseo Personal',
+          image_url: 'https://cdn.jsdelivr.net/gh/webbrother10/cdn-fotos/aseo/colgate.jpg',
+          stock: 65,
+          is_visible: true,
+          promotion_discount: 0,
+          currency: 'USD'
+        }
+      ];
+      setLocalStorage('shop_products', products);
+    }
+    return products;
   }
 
   static async saveProduct(product: Product): Promise<void> {

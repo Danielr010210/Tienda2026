@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Product, ProductCategory, ShopSettings, Order, OrderItem } from '../types';
 import { SupabaseService } from '../supabaseService';
-import { ShoppingCart, Search, X, Phone, MapPin, Clock, Tag, ShoppingBag, Eye } from 'lucide-react';
+import { ShoppingCart, Search, X, Phone, MapPin, Clock, Tag, ShoppingBag, Eye, HelpCircle, MessageSquare, Send, Check, DollarSign } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 interface StorefrontProps {
@@ -31,6 +31,14 @@ export default function Storefront({ onAdminClick }: StorefrontProps) {
 
   // Selected Product for Quick View
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+
+  // Floating Support/Info widget states
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
+  const [supportTab, setSupportTab] = useState<'info' | 'form'>('info');
+  const [supportName, setSupportName] = useState('');
+  const [supportPhone, setSupportPhone] = useState('');
+  const [supportMessage, setSupportMessage] = useState('');
+  const [supportSubmitted, setSupportSubmitted] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -237,6 +245,55 @@ export default function Storefront({ onAdminClick }: StorefrontProps) {
     }
   };
 
+  const handleSendSupportWhatsApp = () => {
+    if (!supportName || !supportMessage) {
+      alert('Por favor complete su nombre y mensaje.');
+      return;
+    }
+    const text = `*💬 NUEVA CONSULTA DE SOPORTE*\n\n👤 *Nombre:* ${supportName}\n📞 *Contacto:* ${supportPhone || 'No especificado'}\n\n*Mensaje/Pregunta:*\n${supportMessage}\n\n_Enviado desde la Tienda Virtual_`;
+    const formattedPhone = (settings?.whatsapp_number || settings?.contact_number || '+17862942257').replace(/\D/g, '');
+    const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
+  };
+
+  const handleSupportSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supportName || !supportMessage) return;
+
+    const inquiry = {
+      id: 'inq-' + Date.now(),
+      name: supportName,
+      email_or_phone: supportPhone || 'No especificado',
+      subject: 'Consulta de Soporte',
+      message: supportMessage,
+      status: 'pending' as const,
+      created_at: new Date().toISOString()
+    };
+
+    try {
+      const existing = JSON.parse(localStorage.getItem('shop_support_inquiries') || '[]');
+      existing.push(inquiry);
+      localStorage.setItem('shop_support_inquiries', JSON.stringify(existing));
+    } catch (err) {
+      console.error(err);
+    }
+
+    setSupportSubmitted(true);
+    confetti({
+      particleCount: 50,
+      spread: 60,
+      origin: { y: 0.8 }
+    });
+
+    setTimeout(() => {
+      setSupportSubmitted(false);
+      setSupportName('');
+      setSupportPhone('');
+      setSupportMessage('');
+      setIsSupportOpen(false);
+    }, 4500);
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50">
@@ -250,8 +307,23 @@ export default function Storefront({ onAdminClick }: StorefrontProps) {
   const shopDesc = settings?.shop_description || 'Artículos premium seleccionados. Rápido, seguro y en un solo toque.';
   const totals = getCartTotals();
 
+  // Dynamic style bindings
+  const primaryColor = settings?.color_primary || '#0f172a';
+  const headerBgColor = settings?.color_header_bg || '#ffffff';
+  const pageBgColor = settings?.color_page_bg || '#F8F9FA';
+  const textColor = settings?.color_text || '#1e293b';
+  const cardBgColor = settings?.color_card_bg || '#ffffff';
+  const fontFamily = settings?.font_family || 'Inter';
+
   return (
-    <div className="min-h-screen bg-[#F8F9FA] flex flex-col text-slate-800">
+    <div 
+      className="min-h-screen flex flex-col transition-colors duration-300"
+      style={{
+        backgroundColor: pageBgColor,
+        color: textColor,
+        fontFamily: `${fontFamily}, system-ui, sans-serif`
+      }}
+    >
       
       {/* Promo Banner if visible */}
       {settings?.banner_visible && (
@@ -264,7 +336,10 @@ export default function Storefront({ onAdminClick }: StorefrontProps) {
       )}
 
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-white border-b border-slate-200/80 shadow-xs backdrop-blur-md bg-white/95">
+      <header 
+        className="sticky top-0 z-40 border-b border-slate-200/80 shadow-xs backdrop-blur-md transition-colors"
+        style={{ backgroundColor: headerBgColor }}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             {settings?.shop_logo_url ? (
@@ -343,9 +418,10 @@ export default function Storefront({ onAdminClick }: StorefrontProps) {
             onClick={() => setSelectedCategory('all')}
             className={`px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
               selectedCategory === 'all' 
-                ? 'bg-slate-900 text-white shadow-md' 
+                ? 'text-white shadow-md' 
                 : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
             }`}
+            style={selectedCategory === 'all' ? { backgroundColor: primaryColor } : undefined}
           >
             Todos los Productos ({products.length})
           </button>
@@ -357,9 +433,10 @@ export default function Storefront({ onAdminClick }: StorefrontProps) {
                 onClick={() => setSelectedCategory(cat.name)}
                 className={`px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
                   selectedCategory === cat.name 
-                    ? 'bg-slate-900 text-white shadow-md' 
+                    ? 'text-white shadow-md' 
                     : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
                 }`}
+                style={selectedCategory === cat.name ? { backgroundColor: primaryColor } : undefined}
               >
                 {cat.name} ({count})
               </button>
@@ -387,7 +464,8 @@ export default function Storefront({ onAdminClick }: StorefrontProps) {
               return (
                 <div 
                   key={product.id}
-                  className="bg-white rounded-xl border border-slate-200/80 hover:shadow-lg transition-all duration-300 flex flex-col overflow-hidden relative group hover:-translate-y-0.5"
+                  className="rounded-xl border border-slate-200/80 hover:shadow-lg transition-all duration-300 flex flex-col overflow-hidden relative group hover:-translate-y-0.5"
+                  style={{ backgroundColor: cardBgColor }}
                 >
                   {/* Promotion tag */}
                   {hasPromo && (
@@ -431,7 +509,10 @@ export default function Storefront({ onAdminClick }: StorefrontProps) {
                   {/* Content */}
                   <div className="p-3.5 sm:p-4 flex flex-col flex-grow">
                     <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{product.category}</span>
-                    <h4 className="text-xs sm:text-sm font-bold text-slate-800 line-clamp-2 mt-1 min-h-[36px] hover:text-indigo-600 cursor-pointer" onClick={() => setSelectedProduct(product)}>
+                    <h4 
+                      className="text-xs sm:text-sm font-bold line-clamp-2 mt-1 min-h-[36px] cursor-pointer hover:opacity-80" 
+                      onClick={() => setSelectedProduct(product)}
+                    >
                       {product.name}
                     </h4>
                     {product.description && (
@@ -453,7 +534,7 @@ export default function Storefront({ onAdminClick }: StorefrontProps) {
                             </span>
                           </>
                         ) : (
-                          <span className="text-xs sm:text-sm font-black text-slate-900">
+                          <span className="text-xs sm:text-sm font-black">
                             {formatPrice(product.price, product.currency)}
                           </span>
                         )}
@@ -465,8 +546,9 @@ export default function Storefront({ onAdminClick }: StorefrontProps) {
                         className={`w-full sm:w-auto px-3.5 py-1.5 rounded-lg text-[11px] font-bold tracking-wide transition-all cursor-pointer ${
                           isOutOfStock 
                             ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-                            : 'bg-slate-900 text-white hover:bg-indigo-600 shadow-xs hover:shadow-md'
+                            : 'text-white hover:opacity-90 shadow-xs hover:shadow-md'
                         }`}
+                        style={!isOutOfStock ? { backgroundColor: primaryColor } : undefined}
                       >
                         {isOutOfStock ? 'Sin Stock' : 'Añadir'}
                       </button>
@@ -759,7 +841,8 @@ export default function Storefront({ onAdminClick }: StorefrontProps) {
                   setSelectedProduct(null);
                 }}
                 disabled={selectedProduct.stock === 0}
-                className="w-full mt-6 bg-slate-900 hover:bg-indigo-600 text-white font-extrabold text-xs py-3 rounded-xl transition-all shadow-sm hover:shadow-md cursor-pointer disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+                className="w-full mt-6 text-white font-extrabold text-xs py-3 rounded-xl transition-all shadow-sm hover:shadow-md cursor-pointer disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed hover:opacity-90"
+                style={selectedProduct.stock > 0 ? { backgroundColor: primaryColor } : undefined}
               >
                 {selectedProduct.stock === 0 ? 'Sin existencias' : 'Añadir al Carrito'}
               </button>
@@ -767,6 +850,206 @@ export default function Storefront({ onAdminClick }: StorefrontProps) {
           </div>
         </div>
       )}
+
+      {/* Floating Support & Store Info Button (FAB) */}
+      <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3 font-sans">
+        {/* The Cartel (Popup Panel) */}
+        {isSupportOpen && (
+          <div 
+            className="w-80 sm:w-96 rounded-2xl shadow-2xl overflow-hidden border border-slate-200/80 bg-white flex flex-col animate-in fade-in slide-in-from-bottom-8 duration-300"
+            style={{ 
+              backgroundColor: cardBgColor,
+              color: textColor,
+              fontFamily: `${fontFamily}, system-ui, sans-serif`
+            }}
+          >
+            {/* Header */}
+            <div 
+              className="p-4 flex items-center justify-between text-white"
+              style={{ backgroundColor: primaryColor }}
+            >
+              <div className="flex items-center gap-2">
+                <MessageSquare size={18} />
+                <div>
+                  <h4 className="text-xs sm:text-sm font-extrabold">Información y Soporte</h4>
+                  <p className="text-[10px] text-white/85 font-medium">Atención al cliente en vivo</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsSupportOpen(false)}
+                className="p-1 rounded-full hover:bg-white/10 text-white transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Tab Switched Navigation */}
+            <div className="flex border-b border-slate-100 bg-slate-50">
+              <button
+                onClick={() => setSupportTab('info')}
+                className={`flex-1 py-2.5 text-center text-xs font-bold transition-all cursor-pointer border-b-2 ${
+                  supportTab === 'info'
+                    ? 'text-slate-900 border-indigo-600'
+                    : 'text-slate-400 border-transparent hover:text-slate-600'
+                }`}
+                style={supportTab === 'info' ? { borderColor: primaryColor } : undefined}
+              >
+                Horarios y Ubicación
+              </button>
+              <button
+                onClick={() => setSupportTab('form')}
+                className={`flex-1 py-2.5 text-center text-xs font-bold transition-all cursor-pointer border-b-2 ${
+                  supportTab === 'form'
+                    ? 'text-slate-900 border-indigo-600'
+                    : 'text-slate-400 border-transparent hover:text-slate-600'
+                }`}
+                style={supportTab === 'form' ? { borderColor: primaryColor } : undefined}
+              >
+                Escribir al Admin
+              </button>
+            </div>
+
+            {/* Tab Contents */}
+            <div className="p-4 max-h-[350px] overflow-y-auto">
+              {supportTab === 'info' ? (
+                <div className="space-y-4">
+                  <div className="flex gap-3">
+                    <Clock className="text-slate-400 shrink-0 mt-0.5" size={16} />
+                    <div>
+                      <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Horario de Atención</h5>
+                      <p className="text-xs font-semibold text-slate-800 mt-0.5">{settings?.business_hours || 'Lunes a Sábado: 9am-5pm'}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <MapPin className="text-slate-400 shrink-0 mt-0.5" size={16} />
+                    <div>
+                      <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Dirección Física</h5>
+                      <p className="text-xs font-semibold text-slate-800 mt-0.5">{settings?.address || '16335 nw 48th Miami Gardens FL 33016'}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <Phone className="text-slate-400 shrink-0 mt-0.5" size={16} />
+                    <div>
+                      <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Teléfono & WhatsApp</h5>
+                      <p className="text-xs font-semibold text-slate-800 mt-0.5">{settings?.contact_number || '+1 (786) 294-2257'}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <DollarSign className="text-slate-400 shrink-0 mt-0.5" size={16} />
+                    <div>
+                      <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Monedas Aceptadas</h5>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {(settings?.currencies || ['USD', 'CUP', 'EUR', 'MLC']).map(curr => (
+                          <span key={curr} className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md uppercase">
+                            {curr}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100">
+                    <p className="text-[11px] leading-relaxed text-slate-500">
+                      ¿Tienes alguna duda con tu pedido o necesitas un envío personalizado? Ponte en contacto con nosotros directamente.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  {supportSubmitted ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-center animate-in fade-in duration-300">
+                      <div className="h-12 w-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mb-3">
+                        <Check size={24} />
+                      </div>
+                      <h5 className="text-sm font-black text-slate-900">¡Mensaje Recibido!</h5>
+                      <p className="text-xs text-slate-500 mt-1.5 max-w-[240px]">
+                        Tu consulta ha sido procesada de manera segura. Nos comunicaremos contigo a la brevedad.
+                      </p>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleSupportSubmit} className="space-y-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tu Nombre *</label>
+                        <input 
+                          type="text"
+                          required
+                          value={supportName}
+                          onChange={(e) => setSupportName(e.target.value)}
+                          placeholder="Ej. María Gómez"
+                          className="mt-1 w-full rounded-lg border border-slate-200 p-2 text-xs outline-none focus:border-slate-400 bg-slate-50"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tu Teléfono (Opcional)</label>
+                        <input 
+                          type="tel"
+                          value={supportPhone}
+                          onChange={(e) => setSupportPhone(e.target.value)}
+                          placeholder="Ej. +1 (786) 123-4567"
+                          className="mt-1 w-full rounded-lg border border-slate-200 p-2 text-xs outline-none focus:border-slate-400 bg-slate-50"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Mensaje o Consulta *</label>
+                        <textarea 
+                          required
+                          rows={3}
+                          value={supportMessage}
+                          onChange={(e) => setSupportMessage(e.target.value)}
+                          placeholder="Escribe tu duda sobre los productos, horarios de entrega o formas de pago..."
+                          className="mt-1 w-full rounded-lg border border-slate-200 p-2 text-xs outline-none focus:border-slate-400 bg-slate-50 resize-none"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1.5">
+                        <button
+                          type="button"
+                          onClick={handleSendSupportWhatsApp}
+                          className="py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all hover:scale-[1.02] cursor-pointer"
+                        >
+                          <Phone size={12} /> WhatsApp Directo
+                        </button>
+                        <button
+                          type="submit"
+                          className="py-2 px-3 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all hover:scale-[1.02] cursor-pointer"
+                          style={{ backgroundColor: primaryColor }}
+                        >
+                          <Send size={12} /> Enviar Mensaje
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Floating Toggle Button */}
+        <button 
+          onClick={() => setIsSupportOpen(!isSupportOpen)}
+          className="h-14 w-14 rounded-full flex items-center justify-center text-white shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 relative cursor-pointer"
+          style={{ backgroundColor: primaryColor }}
+        >
+          {isSupportOpen ? (
+            <X size={24} className="animate-in spin-in duration-200" />
+          ) : (
+            <>
+              <HelpCircle size={26} className="animate-in zoom-in-50 duration-200" />
+              {/* Pulsing indicator badge */}
+              <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+            </>
+          )}
+        </button>
+      </div>
 
     </div>
   );
