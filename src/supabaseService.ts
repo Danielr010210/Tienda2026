@@ -257,7 +257,7 @@ export class SupabaseService {
     localStorage.setItem('supabase_mode', mode);
   }
 
-  private static isReal() {
+  public static isReal() {
     const { url, key, mode } = this.getCredentials();
     return mode === 'real' && !!url && !!key;
   }
@@ -1567,5 +1567,51 @@ export class SupabaseService {
         }
       }
     }
+  }
+
+  static async checkTablesStatus(): Promise<{ name: string; exists: boolean; error?: string }[]> {
+    const tables = [
+      'shop_settings',
+      'products',
+      'workers',
+      'orders',
+      'audit_logs',
+      'security_alerts',
+      'visitor_history',
+      'coupons',
+      'product_reviews',
+      'support_inquiries',
+      'product_categories'
+    ];
+    
+    if (!this.isReal()) {
+      return tables.map(t => ({ name: t, exists: true }));
+    }
+    
+    const client = this.getClient();
+    if (!client) {
+      return tables.map(t => ({ name: t, exists: false, error: 'No se pudo inicializar el cliente de Supabase.' }));
+    }
+    
+    const results = [];
+    for (const table of tables) {
+      try {
+        const { error } = await client.from(table).select('*').limit(0);
+        if (error) {
+          const msg = error.message.toLowerCase();
+          const relationNotExists = msg.includes('does not exist') || msg.includes('no existe la relación') || error.code === '42P01';
+          if (relationNotExists) {
+            results.push({ name: table, exists: false, error: error.message });
+          } else {
+            results.push({ name: table, exists: true, error: error.message });
+          }
+        } else {
+          results.push({ name: table, exists: true });
+        }
+      } catch (e: any) {
+        results.push({ name: table, exists: false, error: e?.message || 'Error desconocido' });
+      }
+    }
+    return results;
   }
 }

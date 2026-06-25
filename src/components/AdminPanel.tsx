@@ -126,7 +126,13 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   // Category CRUD states
   const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
   const [categoryNameInput, setCategoryNameInput] = useState('');
+  const [categoryImagePathInput, setCategoryImagePathInput] = useState('');
   const [editingCategory, setEditingCategory] = useState<ProductCategory | null>(null);
+
+  // Supabase tables checker states
+  const [isTablesStatusModalOpen, setIsTablesStatusModalOpen] = useState(false);
+  const [tablesStatusList, setTablesStatusList] = useState<{ name: string; exists: boolean; error?: string }[]>([]);
+  const [checkingTables, setCheckingTables] = useState(false);
 
   // Coupon states
   const [coupons, setCoupons] = useState<Coupon[]>([]);
@@ -528,6 +534,20 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     }
   };
 
+  // State checker handler for Supabase tables
+  const handleCheckTablesStatus = async () => {
+    setCheckingTables(true);
+    setIsTablesStatusModalOpen(true);
+    try {
+      const results = await SupabaseService.checkTablesStatus();
+      setTablesStatusList(results);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCheckingTables(false);
+    }
+  };
+
   // PRODUCTS SAVE
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -536,13 +556,24 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       return;
     }
 
+    // Resolve category and join image path automatically
+    const selectedCat = categories.find(c => c.name === productForm.category);
+    let finalImageUrl = productForm.image_url.trim();
+    if (finalImageUrl && !finalImageUrl.startsWith('http://') && !finalImageUrl.startsWith('https://') && !finalImageUrl.startsWith('data:')) {
+      const basePath = selectedCat?.image_path?.trim() || '';
+      if (basePath) {
+        const separator = (basePath.endsWith('/') || finalImageUrl.startsWith('/')) ? '' : '/';
+        finalImageUrl = `${basePath}${separator}${finalImageUrl}`;
+      }
+    }
+
     const payload: Product = {
       id: editingProduct?.id || `prod-${Date.now()}`,
       name: productForm.name,
       description: productForm.description || '',
       price: Number(productForm.price) || 0,
       category: productForm.category,
-      image_url: productForm.image_url,
+      image_url: finalImageUrl,
       stock: Number(productForm.stock) || 0,
       is_visible: productForm.is_visible !== false,
       promotion_discount: Number(productForm.promotion_discount) || 0,
@@ -3507,9 +3538,19 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                 ========================================================= */}
             {activeTab === 'database' && (
               <div className="space-y-6">
-                <div className="border-b border-gray-200 pb-5">
-                  <h2 className="text-xl font-bold tracking-tight text-slate-900">Estructuras Supabase Realtime</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Controla tu motor de base de datos elástico en tiempo real.</p>
+                <div className="border-b border-gray-200 pb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-bold tracking-tight text-slate-900">Estructuras Supabase Realtime</h2>
+                    <p className="text-xs text-slate-500 mt-0.5">Controla tu motor de base de datos elástico en tiempo real.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCheckTablesStatus}
+                    className="self-start sm:self-center bg-[#14B8A6] hover:bg-teal-650 text-slate-950 font-black text-xs py-2 px-4 rounded-xl flex items-center gap-2 shadow-sm cursor-pointer transition-all hover:scale-[1.02]"
+                  >
+                    <Database className="w-4 h-4 text-slate-950" />
+                    Verificar Tablas en Supabase
+                  </button>
                 </div>
                 <SupabaseGuide />
               </div>
@@ -3729,19 +3770,6 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                     </button>
                   </div>
                 </form>
-              </div>
-            )}
-
-            {/* =========================================================
-                TAB 9. DATABASE MANUAL / CAPABILITIES
-                ========================================================= */}
-            {activeTab === 'database' && (
-              <div className="space-y-6">
-                <div className="border-b border-gray-200 pb-5">
-                  <h2 className="text-xl font-bold tracking-tight text-slate-900">Estructuras Supabase Realtime</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Controla tu motor de base de datos elástico en tiempo real.</p>
-                </div>
-                <SupabaseGuide />
               </div>
             )}
 
@@ -3990,14 +4018,14 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                       onClick={() => setImgMode('url')}
                       className={`pb-1 uppercase tracking-widest cursor-pointer ${imgMode === 'url' ? 'border-b-2 border-teal-650 text-teal-700' : 'text-slate-400'}`}
                     >
-                      Enlace URL
+                      Enlace URL Completo
                     </button>
                     <button
                       type="button"
                       onClick={() => setImgMode('file')}
                       className={`pb-1 uppercase tracking-widest cursor-pointer ${imgMode === 'file' ? 'border-b-2 border-teal-650 text-teal-700' : 'text-slate-400'}`}
                     >
-                      Cargar Archivo Local
+                      Nombre de Archivo
                     </button>
                   </div>
 
@@ -4012,25 +4040,42 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   ) : (
                     <div className="space-y-1">
                       <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              if (typeof reader.result === 'string') {
-                                setProductForm({ ...productForm, image_url: reader.result });
-                              }
-                            };
-                            reader.readAsDataURL(file);
-                          }
-                        }}
-                        className="w-full text-xs text-slate-550 file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-[10px] file:font-semibold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100 cursor-pointer"
+                        type="text"
+                        placeholder="Eje: zapato.jpg"
+                        value={productForm.image_url && (productForm.image_url.startsWith('http://') || productForm.image_url.startsWith('https://')) 
+                          ? productForm.image_url.substring(productForm.image_url.lastIndexOf('/') + 1) 
+                          : productForm.image_url || ''
+                        }
+                        onChange={(e) => setProductForm({ ...productForm, image_url: e.target.value })}
+                        className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none font-mono"
                       />
-                      {productForm.image_url && productForm.image_url.startsWith('data:') && (
-                        <p className="text-[9px] text-emerald-600 font-bold">✓ Archivo convertido a base64 con éxito.</p>
-                      )}
+                      {(() => {
+                        const selectedCat = categories.find(c => c.name === productForm.category);
+                        const basePath = selectedCat?.image_path || '';
+                        const currentVal = productForm.image_url || '';
+                        if (currentVal && !currentVal.startsWith('http://') && !currentVal.startsWith('https://') && !currentVal.startsWith('data:')) {
+                          const separator = (basePath.endsWith('/') || currentVal.startsWith('/')) ? '' : '/';
+                          const fullUrl = basePath ? `${basePath}${separator}${currentVal}` : currentVal;
+                          return (
+                            <div className="text-[9px] text-teal-650 bg-teal-50 p-2 rounded-lg mt-1 break-all">
+                              <span className="font-bold block">URL Resultante al guardar:</span>
+                              <span className="font-mono">{fullUrl}</span>
+                            </div>
+                          );
+                        } else if (basePath) {
+                          return (
+                            <div className="text-[9px] text-slate-500 bg-slate-100/85 p-2 rounded-lg mt-1 break-all">
+                              <span className="font-bold block">Ruta Base de la Categoría seleccionada:</span>
+                              <span className="font-mono">{basePath}</span>
+                            </div>
+                          );
+                        }
+                        return (
+                          <p className="text-[9px] text-slate-450 mt-1">
+                            Se unirá automáticamente con la dirección de la categoría seleccionada al guardar.
+                          </p>
+                        );
+                      })()}
                     </div>
                   )}
 
@@ -4311,10 +4356,12 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   try {
                     const payload = {
                       id: editingCategory?.id || `cat-${Date.now()}`,
-                      name: categoryNameInput.trim()
+                      name: categoryNameInput.trim(),
+                      image_path: categoryImagePathInput.trim()
                     };
                     await SupabaseService.saveCategory(payload);
                     setCategoryNameInput('');
+                    setCategoryImagePathInput('');
                     setEditingCategory(null);
                     // Refresh
                     await loadDatabaseData();
@@ -4322,9 +4369,9 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                     alert('Error al guardar categoría.');
                   }
                 }}
-                className="flex items-center gap-2 p-3 bg-slate-50 border border-gray-150 rounded-xl"
+                className="flex flex-col gap-3 p-4 bg-slate-50 border border-gray-150 rounded-xl"
               >
-                <div className="flex-1">
+                <div>
                   <label className="block text-[9px] font-black text-slate-500 uppercase mb-1">
                     {editingCategory ? 'Editando Nombre' : 'Nueva Categoría'}
                   </label>
@@ -4334,31 +4381,49 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                     placeholder="Eje: Electrodomésticos"
                     value={categoryNameInput}
                     onChange={(e) => setCategoryNameInput(e.target.value)}
-                    className="w-full text-xs p-2 bg-white border border-gray-205 rounded-lg focus:outline-none"
+                    className="w-full text-xs p-2.5 bg-white border border-gray-205 rounded-lg focus:outline-none"
                   />
                 </div>
-                <button
-                  type="submit"
-                  className="bg-[#14B8A6] hover:bg-teal-650 text-slate-950 font-extrabold p-2.5 px-4 rounded-xl mt-4 self-end cursor-pointer"
-                >
-                  {editingCategory ? 'Guardar' : 'Agregar'}
-                </button>
-                {editingCategory && (
+                <div>
+                  <label className="block text-[9px] font-black text-slate-500 uppercase mb-1">
+                    Ruta/Dirección Base de Imágenes (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Eje: https://miweb.com/images/electro/"
+                    value={categoryImagePathInput}
+                    onChange={(e) => setCategoryImagePathInput(e.target.value)}
+                    className="w-full text-xs p-2.5 bg-white border border-gray-205 rounded-lg focus:outline-none"
+                  />
+                  <p className="text-[9px] text-slate-400 mt-1">
+                    Dirección base que se unirá automáticamente a los nombres de imágenes de los productos de esta categoría.
+                  </p>
+                </div>
+                <div className="flex gap-2 justify-end mt-1">
+                  {editingCategory && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingCategory(null);
+                        setCategoryNameInput('');
+                        setCategoryImagePathInput('');
+                      }}
+                      className="border border-gray-250 bg-white hover:bg-slate-50 text-slate-500 font-semibold p-2 px-3 rounded-xl cursor-pointer"
+                    >
+                      Salir
+                    </button>
+                  )}
                   <button
-                    type="button"
-                    onClick={() => {
-                      setEditingCategory(null);
-                      setCategoryNameInput('');
-                    }}
-                    className="border border-gray-250 bg-white hover:bg-slate-50 text-slate-500 font-semibold p-2.5 px-3 rounded-xl mt-4 self-end cursor-pointer"
+                    type="submit"
+                    className="bg-[#14B8A6] hover:bg-teal-650 text-slate-950 font-extrabold p-2 px-4 rounded-xl cursor-pointer"
                   >
-                    Salir
+                    {editingCategory ? 'Guardar' : 'Agregar'}
                   </button>
-                )}
+                </div>
               </form>
 
               {/* List showing editable/deletable categories */}
-              <div className="space-y-1.5 max-h-[250px] overflow-y-auto pr-1">
+              <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
                 <span className="block text-[10px] font-bold text-slate-450 uppercase mb-2">Categorías Registradas</span>
                 {categories.length === 0 ? (
                   <p className="text-slate-400 italic text-center py-4">No hay categorías registradas. Se usarán valores por defecto.</p>
@@ -4366,15 +4431,23 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   categories.map((cat) => (
                     <div 
                       key={cat.id} 
-                      className="p-2.5 bg-white border border-gray-155 rounded-xl flex items-center justify-between hover:bg-slate-50/50"
+                      className="p-2.5 bg-white border border-gray-155 rounded-xl flex items-center justify-between hover:bg-slate-50/50 gap-2"
                     >
-                      <span className="font-bold text-slate-805">{cat.name}</span>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="font-bold text-slate-805 truncate">{cat.name}</span>
+                        {cat.image_path && (
+                          <span className="text-[9px] text-slate-400 font-mono truncate max-w-[200px]" title={cat.image_path}>
+                            Base: {cat.image_path}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
                           onClick={() => {
                             setEditingCategory(cat);
                             setCategoryNameInput(cat.name);
+                            setCategoryImagePathInput(cat.image_path || '');
                           }}
                           className="p-1 px-2 text-[10px] border border-gray-205 rounded bg-white font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
                         >
@@ -4389,6 +4462,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                                 if (editingCategory?.id === cat.id) {
                                   setEditingCategory(null);
                                   setCategoryNameInput('');
+                                  setCategoryImagePathInput('');
                                 }
                                 await loadDatabaseData();
                               } catch (err) {
@@ -4574,6 +4648,103 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Supabase Tables Checker Modal */}
+      {isTablesStatusModalOpen && (
+        <div className="fixed inset-0 z-[110] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in" id="tables-status-checker-modal">
+          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col text-xs animate-scale-up">
+            <div className="p-5 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Database className="w-5 h-5 text-teal-400" />
+                <h3 className="font-bold text-sm">Estado de Tablas en Supabase</h3>
+              </div>
+              <button 
+                onClick={() => setIsTablesStatusModalOpen(false)} 
+                className="text-slate-300 hover:text-white cursor-pointer"
+                title="Cerrar cartel"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+              {checkingTables ? (
+                <div className="flex flex-col items-center justify-center py-8 space-y-3">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500"></div>
+                  <p className="text-slate-500 font-medium animate-pulse">Consultando el esquema de base de datos...</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100 mb-2">
+                    <span className="font-bold text-slate-700">Estado de Conexión:</span>
+                    {SupabaseService.isReal() ? (
+                      <span className="px-2.5 py-0.5 text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 rounded-full flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                        Real Conectado
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-0.5 text-[10px] font-extrabold uppercase bg-amber-100 text-amber-800 rounded-full">
+                        Modo Simulado
+                      </span>
+                    )}
+                  </div>
+
+                  <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                    Estructura del Esquema ({tablesStatusList.length} Tablas)
+                  </span>
+
+                  <div className="grid grid-cols-1 gap-2">
+                    {tablesStatusList.map((tbl) => (
+                      <div 
+                        key={tbl.name} 
+                        className={`p-2.5 rounded-xl border flex items-center justify-between transition-all ${
+                          tbl.exists 
+                            ? 'bg-emerald-50/50 border-emerald-100 hover:bg-emerald-50' 
+                            : 'bg-red-50/30 border-red-100 hover:bg-red-50/50'
+                        }`}
+                      >
+                        <div className="flex flex-col">
+                          <span className="font-mono font-bold text-slate-700">{tbl.name}</span>
+                          {tbl.error && (
+                            <span className="text-[9px] text-red-500 font-mono mt-0.5 max-w-[280px] truncate" title={tbl.error}>
+                              Error: {tbl.error}
+                            </span>
+                          )}
+                        </div>
+                        {tbl.exists ? (
+                          <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-lg flex items-center gap-1">
+                            ✅ Activa
+                          </span>
+                        ) : (
+                          <span className="text-xs bg-red-100 text-red-800 font-bold px-2 py-0.5 rounded-lg flex items-center gap-1">
+                            ❌ Faltante
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {!checkingTables && tablesStatusList.some(t => !t.exists) && SupabaseService.isReal() && (
+                    <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-red-800 text-[10.5px] leading-relaxed">
+                      <strong>⚠️ Tablas faltantes detectadas:</strong> Copia el <strong>Script de Actualización</strong> en la pestaña SQL para crearlas automáticamente en tu panel de Supabase.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsTablesStatusModalOpen(false)}
+                className="px-4 py-2 bg-slate-900 text-white font-extrabold hover:bg-slate-800 rounded-xl cursor-pointer"
+              >
+                Cerrar Cartel
+              </button>
+            </div>
           </div>
         </div>
       )}

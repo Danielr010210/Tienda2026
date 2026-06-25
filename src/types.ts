@@ -115,6 +115,7 @@ export interface ShopSettings {
 export interface ProductCategory {
   id: string;
   name: string;
+  image_path?: string;
   created_at?: string;
 }
 
