@@ -9,7 +9,7 @@ import { SupabaseService } from '../supabaseService';
 import { formatCurrency, generateInvoiceNumber } from '../utils';
 import { 
   ShoppingBag, Search, Tag, AlertTriangle, CheckCircle, SlidersHorizontal, 
-  Send, Wifi, WifiOff, RefreshCw, Smartphone, MapPin, Sparkles, X, ChevronRight, CornerDownRight,
+  Send, Wifi, WifiOff, RefreshCw, Smartphone, MapPin, Sparkles, X, ChevronRight, ChevronLeft, ArrowLeft, CornerDownRight,
   Star, Info, Eye, HelpCircle, Database, Phone, Mail, Music, Zap, Package, Compass, Ship, Anchor
 } from 'lucide-react';
 
@@ -39,6 +39,17 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   // Search & Navigation
   const [selectedCategory, setSelectedCategory] = useState<string>('General');
   const [searchQuery, setSearchQuery] = useState('');
+  const categoryContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollCategories = (direction: 'left' | 'right') => {
+    if (categoryContainerRef.current) {
+      const scrollAmount = 200;
+      categoryContainerRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
 
   // Cart States
   const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
@@ -382,6 +393,23 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
     return product.price;
   };
 
+  // Helper to compute unit price taking tiered pricing scales and promotions into account
+  const getProductUnitPriceForQty = (product: Product, quantity: number): number => {
+    let basePrice = product.price;
+    if (product.quantity_prices && product.quantity_prices.length > 0) {
+      // Sort scales descending to find matching threshold
+      const sorted = [...product.quantity_prices].sort((a, b) => b.quantity - a.quantity);
+      const match = sorted.find(scale => quantity >= scale.quantity);
+      if (match) {
+        basePrice = match.price;
+      }
+    }
+    if (product.promotion_discount > 0) {
+      return basePrice * (1 - product.promotion_discount / 100);
+    }
+    return basePrice;
+  };
+
   // Advanced Filtering and Sorting of products
   const filteredProducts = products
     .filter(p => {
@@ -474,7 +502,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   const getDiscountedTotals = () => {
     const cartTotalsByCurrency = cart.reduce((acc, item) => {
       const currency = item.product.currency || 'CUP';
-      const finalPrice = getPromoPrice(item.product);
+      const finalPrice = getProductUnitPriceForQty(item.product, item.quantity);
       acc[currency] = (acc[currency] || 0) + finalPrice * item.quantity;
       return acc;
     }, {} as Record<string, number>);
@@ -562,7 +590,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   };
 
   const cartTotal = cart.reduce((acc, item) => {
-    const finalPrice = getPromoPrice(item.product);
+    const finalPrice = getProductUnitPriceForQty(item.product, item.quantity);
     return acc + finalPrice * item.quantity;
   }, 0);
 
@@ -587,7 +615,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
         product_id: item.product.id,
         product_name: item.product.name,
         quantity: item.quantity,
-        price_sold: getPromoPrice(item.product),
+        price_sold: getProductUnitPriceForQty(item.product, item.quantity),
         currency: item.product.currency || 'CUP'
       }));
 
@@ -890,17 +918,6 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
             <Database className="w-5 h-5" />
           </button>
 
-          {/* About Modal Trigger Icon */}
-          {settings?.about_visible !== false && (
-            <button 
-              onClick={() => setIsAboutOpen(true)}
-              className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-all cursor-pointer"
-              title="Acerca de la tienda"
-            >
-              <Info className="w-5 h-5" />
-            </button>
-          )}
-
           {/* Cart Icon / Action */}
           <button 
             onClick={() => setIsCartOpen(true)}
@@ -1077,24 +1094,48 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
             </div>
           )}
 
-          {/* Categoría tabs selector */}
-          <div id="category-tabs" className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-            {categories.map(cat => {
-              const isActive = selectedCategory.toLowerCase() === cat.toLowerCase();
-              return (
-                <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`text-xs px-4 py-2 rounded-xl border font-semibold whitespace-nowrap transition-all cursor-pointer ${
-                    isActive 
-                      ? 'bg-slate-950 text-white border-slate-950 shadow-sm' 
-                      : 'bg-white text-slate-600 border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  {cat === 'General' ? 'Todos los Productos' : cat}
-                </button>
-              );
-            })}
+          {/* Categoría tabs selector with horizontal arrows */}
+          <div className="flex items-center gap-2 relative">
+            <button
+              type="button"
+              onClick={() => scrollCategories('left')}
+              className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 p-2 rounded-xl transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer flex items-center justify-center"
+              title="Desplazar a la izquierda"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            <div 
+              ref={categoryContainerRef}
+              id="category-tabs" 
+              className="flex-1 flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none scroll-smooth"
+            >
+              {categories.map(cat => {
+                const isActive = selectedCategory.toLowerCase() === cat.toLowerCase();
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`text-xs px-4 py-2 rounded-xl border font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                      isActive 
+                        ? 'bg-slate-950 text-white border-slate-950 shadow-sm' 
+                        : 'bg-white text-slate-600 border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    {cat === 'General' ? 'Todos los Productos' : cat}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => scrollCategories('right')}
+              className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 p-2 rounded-xl transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer flex items-center justify-center"
+              title="Desplazar a la derecha"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
@@ -1186,6 +1227,21 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
                       <p className="text-xs text-slate-500 mt-1.5 line-clamp-2 leading-relaxed">
                         {product.description}
                       </p>
+
+                      {product.quantity_prices && product.quantity_prices.length > 0 && (
+                        <div className="mt-2.5 space-y-1">
+                          <p className="text-[9px] text-teal-600 font-bold uppercase tracking-wider flex items-center gap-1">
+                            <span>⚡ Precio por cantidad:</span>
+                          </p>
+                          <div className="flex flex-wrap gap-1">
+                            {product.quantity_prices.map((qp, idx) => (
+                              <span key={idx} className="bg-teal-50 border border-teal-100/60 text-teal-800 font-bold text-[9px] px-1.5 py-0.5 rounded" title={`Para compras de ${qp.quantity} o más unidades`}>
+                                {qp.quantity}+ ud: {formatCurrency(product.promotion_discount > 0 ? qp.price * (1 - product.promotion_discount / 100) : qp.price, currencySymbol)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Footer price & action */}
@@ -1278,7 +1334,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
                 </div>
               ) : (
                 cart.map(item => {
-                  const finalPrice = getPromoPrice(item.product);
+                  const finalPrice = getProductUnitPriceForQty(item.product, item.quantity);
                   const currencySymbol = item.product.currency || 'CUP';
                   return (
                     <div 
@@ -1979,6 +2035,24 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
                     )}
                     <span className="text-[10px] text-slate-400 font-medium ml-auto">Stock: {selectedProduct.stock}</span>
                   </div>
+
+                  {selectedProduct.quantity_prices && selectedProduct.quantity_prices.length > 0 && (
+                    <div className="mt-4 bg-slate-50 border border-slate-200/50 p-3 rounded-xl space-y-2">
+                      <p className="text-[10px] text-teal-600 font-extrabold uppercase tracking-wider flex items-center gap-1">
+                        <span>⚡ Descuentos por Cantidad (Mayoreo):</span>
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 text-[10px]">
+                        {selectedProduct.quantity_prices.map((qp, idx) => (
+                          <div key={idx} className="flex justify-between items-center bg-white border border-slate-100 p-2 rounded-lg">
+                            <span className="font-medium text-slate-500">≥ {qp.quantity} unidades:</span>
+                            <span className="font-extrabold text-teal-700">
+                              {formatCurrency(selectedProduct.promotion_discount > 0 ? qp.price * (1 - selectedProduct.promotion_discount / 100) : qp.price, selectedProduct.currency || 'CUP')} c/u
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Verified reviews & star selection list */}
@@ -2222,13 +2296,36 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
         </div>
       )}
 
+      {/* Floating About / Address Map Location Button */}
+      {settings?.about_visible !== false && (
+        <div className={`fixed bottom-[84px] z-[95] print:hidden transition-all duration-300 ${isCartOpen ? 'left-6 md:left-auto md:right-[464px]' : 'right-6 md:right-6'}`}>
+          <button
+            onClick={() => setIsAboutOpen(true)}
+            type="button"
+            title="Ver Dirección y Mapa (Ubicación)"
+            className={`flex items-center bg-slate-950 border-2 border-[#14B8A6] text-white rounded-full transition-all duration-300 cursor-pointer group focus:outline-none ${
+              isCartOpen ? 'p-3' : 'p-3 px-4.5'
+            } shadow-[0_0_20px_rgba(20,184,166,0.3)] hover:shadow-[0_0_25px_rgba(20,184,166,0.6)] hover:border-teal-400 active:scale-95`}
+          >
+            <div className="relative">
+              <MapPin className="w-4 h-4 text-teal-400 animate-pulse group-hover:rotate-12 transition-transform" />
+            </div>
+            <span className={`text-xs font-black tracking-wider uppercase text-teal-400 font-mono transition-all duration-300 overflow-hidden whitespace-nowrap ${isCartOpen ? 'max-w-0 opacity-0' : 'max-w-xs opacity-100 ml-2'}`}>
+              Dirección & Mapa
+            </span>
+          </button>
+        </div>
+      )}
+
       {/* Floating Personal Brand Card Badge */}
-      <div className="fixed bottom-6 right-6 z-[95] print:hidden">
+      <div className={`fixed bottom-6 z-[95] print:hidden transition-all duration-300 ${isCartOpen ? 'left-6 md:left-auto md:right-[464px]' : 'right-6 md:right-6'}`}>
         <button
           onClick={() => setIsBusinessCardOpen(true)}
           type="button"
           title="Ver Tarjeta de Contacto y Servicios"
-          className="flex items-center gap-2 bg-slate-950 border-2 border-[#fbbf24] text-white rounded-full p-3 px-4.5 shadow-[0_0_20px_rgba(251,191,36,0.3)] hover:shadow-[0_0_25px_rgba(251,191,36,0.6)] hover:border-yellow-400 active:scale-95 transition-all duration-300 cursor-pointer group focus:outline-none"
+          className={`flex items-center bg-slate-950 border-2 border-[#fbbf24] text-white rounded-full transition-all duration-300 cursor-pointer group focus:outline-none ${
+            isCartOpen ? 'p-3' : 'p-3 px-4.5'
+          } shadow-[0_0_20px_rgba(251,191,36,0.3)] hover:shadow-[0_0_25px_rgba(251,191,36,0.6)] hover:border-yellow-400 active:scale-95`}
         >
           <div className="relative">
             <Sparkles className="w-4 h-4 text-yellow-400 animate-pulse group-hover:rotate-12 transition-transform" />
@@ -2237,7 +2334,9 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
               <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-500"></span>
             </span>
           </div>
-          <span className="text-xs font-black tracking-wider uppercase text-[#fbbf24] font-mono">Contacto & Servicios</span>
+          <span className={`text-xs font-black tracking-wider uppercase text-[#fbbf24] font-mono transition-all duration-300 overflow-hidden whitespace-nowrap ${isCartOpen ? 'max-w-0 opacity-0' : 'max-w-xs opacity-100 ml-2'}`}>
+            Contacto & Servicios
+          </span>
         </button>
       </div>
 

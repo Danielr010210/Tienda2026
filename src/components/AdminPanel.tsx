@@ -138,6 +138,16 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [isCouponModalOpen, setIsCouponModalOpen] = useState(false);
   const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
+
+  // User Profile States (Self password and PIN change)
+  const [profileCurrentPassword, setProfileCurrentPassword] = useState('');
+  const [profileNewPassword, setProfileNewPassword] = useState('');
+  const [profileConfirmPassword, setProfileConfirmPassword] = useState('');
+  const [profileNewPin, setProfileNewPin] = useState('');
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [couponForm, setCouponForm] = useState<Partial<Coupon>>({
     code: '', discount_type: 'percent', discount_value: 10, is_active: true, min_purchase_amount: 0
   });
@@ -185,18 +195,18 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   const [showRecoveryPassword, setShowRecoveryPassword] = useState(false);
 
   // Load backend database content
-  const loadDatabaseData = async () => {
+  const loadDatabaseData = async (forceRefresh = false) => {
     try {
-      const prodList = await SupabaseService.getProducts();
-      const ords = await SupabaseService.getOrders();
-      const wrks = await SupabaseService.getWorkers();
-      const audits = await SupabaseService.getAuditLogs();
-      const alrts = await SupabaseService.getAlerts();
-      const sets = await SupabaseService.getSettings();
-      const cats = await SupabaseService.getCategories();
-      const sups = await SupabaseService.getSupportInquiries();
-      const vis = await SupabaseService.getVisitorHistory();
-      const cps = await SupabaseService.getCoupons();
+      const prodList = await SupabaseService.getProducts(forceRefresh);
+      const ords = await SupabaseService.getOrders(forceRefresh);
+      const wrks = await SupabaseService.getWorkers(forceRefresh);
+      const audits = await SupabaseService.getAuditLogs(forceRefresh);
+      const alrts = await SupabaseService.getAlerts(forceRefresh);
+      const sets = await SupabaseService.getSettings(forceRefresh);
+      const cats = await SupabaseService.getCategories(forceRefresh);
+      const sups = await SupabaseService.getSupportInquiries(forceRefresh);
+      const vis = await SupabaseService.getVisitorHistory(forceRefresh);
+      const cps = await SupabaseService.getCoupons(forceRefresh);
 
       setProducts(prodList);
       setOrders(ords);
@@ -473,6 +483,104 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     }
   };
 
+  // Submit Profile Password and/or PIN change
+  const handleProfileUpdateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfileError(null);
+    setProfileSuccess(null);
+
+    if (!currentUser) {
+      setProfileError('No hay sesión de usuario activa.');
+      return;
+    }
+
+    if (!profileCurrentPassword) {
+      setProfileError('Por favor introduce tu contraseña actual para autorizar cambios.');
+      return;
+    }
+
+    setIsProfileLoading(true);
+
+    try {
+      // Verify current password
+      const hashedCurrent = hashSHA256(profileCurrentPassword);
+      if (hashedCurrent !== currentUser.password_sha256) {
+        setProfileError('La contraseña actual es incorrecta.');
+        setIsProfileLoading(false);
+        return;
+      }
+
+      let updatedPasswordValue = undefined;
+      let auditMsg = '';
+
+      // Validate new password if provided
+      if (profileNewPassword) {
+        if (profileNewPassword.length < 6) {
+          setProfileError('La nueva contraseña debe tener mínimo 6 caracteres.');
+          setIsProfileLoading(false);
+          return;
+        }
+        if (profileNewPassword !== profileConfirmPassword) {
+          setProfileError('La nueva contraseña y la confirmación no coinciden.');
+          setIsProfileLoading(false);
+          return;
+        }
+        updatedPasswordValue = profileNewPassword;
+        auditMsg += 'Cambió su contraseña de acceso. ';
+      }
+
+      // Validate new security PIN if provided
+      let finalPin = currentUser.security_pin;
+      if (profileNewPin) {
+        if (profileNewPin.length !== 6 || !/^\d+$/.test(profileNewPin)) {
+          setProfileError('El PIN de seguridad debe tener exactamente 6 dígitos numéricos.');
+          setIsProfileLoading(false);
+          return;
+        }
+        finalPin = profileNewPin;
+        auditMsg += 'Cambió su PIN de seguridad de recuperación.';
+      }
+
+      if (!profileNewPassword && !profileNewPin) {
+        setProfileError('Introduce una nueva contraseña o un nuevo PIN para actualizar.');
+        setIsProfileLoading(false);
+        return;
+      }
+
+      // Update in Supabase / Local storage
+      const workerToUpdate: Worker = {
+        ...currentUser,
+        security_pin: finalPin
+      };
+
+      await SupabaseService.saveWorker(workerToUpdate, updatedPasswordValue);
+
+      // Fetch the updated worker to get the hashed password and update current session
+      const allWorkers = await SupabaseService.getWorkers(true);
+      const freshlyUpdated = allWorkers.find(w => w.id === currentUser.id);
+      if (freshlyUpdated) {
+        setCurrentUser(freshlyUpdated);
+        localStorage.setItem('active_worker_session', JSON.stringify(freshlyUpdated));
+      }
+
+      if (auditMsg) {
+        await SupabaseService.logAudit(currentUser.name, 'Actualizar Perfil', auditMsg);
+      }
+
+      setProfileSuccess('¡Perfil y PIN actualizados con éxito!');
+      setProfileCurrentPassword('');
+      setProfileNewPassword('');
+      setProfileConfirmPassword('');
+      setProfileNewPin('');
+
+    } catch (err) {
+      console.error('Error updating user profile:', err);
+      setProfileError('Error actualizando el perfil. Reintente.');
+    } finally {
+      setIsProfileLoading(false);
+    }
+  };
+
   // Logouts
   const handleLogout = () => {
     if (currentUser) {
@@ -577,7 +685,8 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       stock: Number(productForm.stock) || 0,
       is_visible: productForm.is_visible !== false,
       promotion_discount: Number(productForm.promotion_discount) || 0,
-      currency: productForm.currency || 'CUP'
+      currency: productForm.currency || 'CUP',
+      quantity_prices: productForm.quantity_prices || []
     };
 
     try {
@@ -1524,8 +1633,8 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   <span>Control de Inventario</span>
                 </button>
 
-                {/* Workers CRUD: Admin only */}
-                {isAdmin && (
+                {/* Workers CRUD: Admin & Manager */}
+                {(isAdmin || isManager) && (
                   <button
                     onClick={() => { setActiveTab('trabajadores'); setIsMobileMenuOpen(false); }}
                     className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
@@ -1649,6 +1758,17 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   </div>
                 </button>
 
+                {/* My Profile / Security: All roles */}
+                <button
+                  onClick={() => { setActiveTab('mi_perfil'); setIsMobileMenuOpen(false); }}
+                  className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
+                    activeTab === 'mi_perfil' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
+                  }`}
+                >
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Mi Perfil y Seguridad</span>
+                </button>
+
                 {/* Database manual SQL / Realtime keys: All roles can inspect instructions */}
                 <button
                   onClick={() => { setActiveTab('database'); setIsMobileMenuOpen(false); }}
@@ -1695,6 +1815,34 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
           {/* Core Content Body */}
           <main className="flex-1 bg-[#F8F9FA] overflow-y-auto p-6 md:p-8">
             
+            {/* General Database Sync and Cache Indicator banner (Botón de Actualizar Datos desde BD) */}
+            <div className="mb-6 bg-slate-900 text-slate-100 p-4 rounded-2xl border border-slate-800 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4 animate-fade-in">
+              <div className="flex items-start gap-3">
+                <div className="bg-teal-950 p-2 rounded-xl border border-teal-800/30 text-teal-400 mt-0.5 flex-shrink-0">
+                  <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-teal-400 tracking-wide uppercase">Sincronización de Ancho de Banda Eficiente</h4>
+                  <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                    Los datos de la base de datos se guardan en la caché del navegador durante <span className="text-teal-300 font-bold">5 minutos</span> para optimizar la red. Pulsa el botón para forzar una consulta directa a la base de datos y actualizar esta pestaña.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isRefreshing}
+                onClick={async () => {
+                  setIsRefreshing(true);
+                  await loadDatabaseData(true);
+                  setIsRefreshing(false);
+                }}
+                className="w-full md:w-auto bg-teal-500 hover:bg-teal-400 text-slate-950 font-black text-xs px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98] disabled:opacity-50 select-none shadow-lg shadow-teal-500/10"
+              >
+                <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span>{isRefreshing ? 'Actualizando desde BD...' : 'Actualizar Datos desde BD'}</span>
+              </button>
+            </div>
+
             {/* =========================================================
                 TAB 1. DASHBOARD OVERVIEW 
                 ========================================================= */}
@@ -3534,6 +3682,138 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
             )}
 
             {/* =========================================================
+                TAB 8.5. MI PERFIL Y SEGURIDAD
+                ========================================================= */}
+            {activeTab === 'mi_perfil' && currentUser && (
+              <div className="max-w-2xl space-y-6 animate-fade-in pb-12">
+                <div className="border-b border-gray-200 pb-5">
+                  <h2 className="text-xl font-black tracking-tight text-slate-900">🛡️ Mi Perfil y Seguridad</h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Cambia tu contraseña de acceso y tu PIN de seguridad de recuperación de manera confidencial.
+                  </p>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-6 shadow-sm">
+                  {/* Worker identity badge */}
+                  <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                    <div className="h-12 w-12 rounded-full bg-teal-500 flex items-center justify-center font-black text-slate-950 text-base shadow-sm">
+                      {currentUser.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">{currentUser.name}</h4>
+                      <p className="text-[11px] text-slate-500">
+                        Usuario: <span className="font-mono font-bold text-slate-700">{currentUser.username}</span> | Rol: <span className="bg-slate-200 px-2 py-0.5 rounded text-[10px] font-black uppercase text-slate-700">{currentUser.role}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleProfileUpdateSubmit} className="space-y-4">
+                    {profileSuccess && (
+                      <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-lg flex items-center gap-2">
+                        <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                        <span>{profileSuccess}</span>
+                      </div>
+                    )}
+
+                    {profileError && (
+                      <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold rounded-lg flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                        <span>{profileError}</span>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-650 uppercase tracking-widest mb-1.5">
+                        Contraseña Actual *
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="Introduce tu contraseña actual"
+                        value={profileCurrentPassword}
+                        onChange={(e) => setProfileCurrentPassword(e.target.value)}
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono"
+                      />
+                    </div>
+
+                    <div className="border-t border-gray-100 my-4 pt-4 space-y-4">
+                      <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">Cambiar Contraseña (Opcional)</h3>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1.5">
+                            Nueva Contraseña
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="Mínimo 6 caracteres"
+                            value={profileNewPassword}
+                            onChange={(e) => setProfileNewPassword(e.target.value)}
+                            className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1.5">
+                            Confirmar Nueva Contraseña
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="Repite la nueva contraseña"
+                            value={profileConfirmPassword}
+                            onChange={(e) => setProfileConfirmPassword(e.target.value)}
+                            className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-gray-100 my-4 pt-4">
+                      <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-3">Cambiar PIN de Seguridad (Opcional)</h3>
+                      
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1.5">
+                          Nuevo PIN de Seguridad (6 dígitos)
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={6}
+                          placeholder="Ej: 654321"
+                          value={profileNewPin}
+                          onChange={(e) => setProfileNewPin(e.target.value.replace(/\D/g, ''))}
+                          className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono tracking-widest"
+                        />
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          Este PIN te permitirá recuperar tu acceso si olvidas tu contraseña, sin necesidad de que un administrador intervenga.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-gray-100 pt-4 flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={isProfileLoading}
+                        className="bg-[#14B8A6] hover:bg-teal-650 text-slate-950 font-black text-xs py-2.5 px-6 rounded-xl flex items-center gap-2 shadow-sm cursor-pointer transition-all hover:scale-[1.02] disabled:opacity-50"
+                      >
+                        {isProfileLoading ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span>Guardando Cambios...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-4 h-4" />
+                            <span>Actualizar Perfil</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* =========================================================
                 TAB 9. DATABASE MANUAL / CAPABILITIES
                 ========================================================= */}
             {activeTab === 'database' && (
@@ -4005,6 +4285,86 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                     className="w-full text-xs p-2.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none"
                   />
                 </div>
+              </div>
+
+              {/* Optional Tiered Quantity Pricing */}
+              <div className="bg-slate-50 border border-slate-200/60 p-4 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[11px] font-black uppercase text-slate-800 tracking-wider flex items-center gap-2">
+                    🏷️ Escalas de Precio por Cantidad (Opcional)
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const currentPrices = productForm.quantity_prices || [];
+                      setProductForm({
+                        ...productForm,
+                        quantity_prices: [...currentPrices, { quantity: 1, price: 0 }]
+                      });
+                    }}
+                    className="bg-[#14B8A6] hover:bg-teal-650 text-slate-950 font-black text-[10px] py-1 px-2.5 rounded-lg flex items-center gap-1 transition-all cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Agregar Escala</span>
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  Define precios preferenciales según el volumen de compra. Ejemplo: 1 por $3.00, o 6 por $1.00 cada uno. Los demás precios son opcionales.
+                </p>
+
+                {(productForm.quantity_prices || []).length === 0 ? (
+                  <div className="text-center py-2 text-[10px] text-slate-400 italic">
+                    Ninguna escala definida (se aplicará el precio unitario general).
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {(productForm.quantity_prices || []).map((qp, index) => (
+                      <div key={index} className="flex items-center gap-3 bg-white p-2 rounded-lg border border-slate-100 shadow-sm">
+                        <div className="flex-1 flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-500">Cantidad ≥</span>
+                          <input
+                            type="number"
+                            min="1"
+                            value={qp.quantity}
+                            onChange={(e) => {
+                              const updated = [...(productForm.quantity_prices || [])];
+                              updated[index].quantity = Number(e.target.value) || 1;
+                              setProductForm({ ...productForm, quantity_prices: updated });
+                            }}
+                            className="w-full text-xs p-1.5 bg-slate-50 border border-gray-200 rounded-md font-mono"
+                            required
+                          />
+                        </div>
+                        <div className="flex-1 flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-500">Precio unitario $</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={qp.price}
+                            onChange={(e) => {
+                              const updated = [...(productForm.quantity_prices || [])];
+                              updated[index].price = Number(e.target.value) || 0;
+                              setProductForm({ ...productForm, quantity_prices: updated });
+                            }}
+                            className="w-full text-xs p-1.5 bg-slate-50 border border-gray-200 rounded-md font-mono"
+                            required
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = (productForm.quantity_prices || []).filter((_, idx) => idx !== index);
+                            setProductForm({ ...productForm, quantity_prices: updated });
+                          }}
+                          className="text-red-500 hover:text-red-700 p-1 bg-red-50 rounded hover:bg-red-100 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div>

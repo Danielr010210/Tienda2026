@@ -5,6 +5,11 @@
 
 export type UserRole = 'admin' | 'gerente' | 'empleado' | 'cliente';
 
+export interface QuantityPrice {
+  quantity: number;
+  price: number;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -17,6 +22,7 @@ export interface Product {
   promotion_discount: number; // Percentage discount (e.g., 15 for 15% off)
   currency?: string; // Specific product currency override
   created_at?: string;
+  quantity_prices?: QuantityPrice[];
 }
 
 export interface Worker {

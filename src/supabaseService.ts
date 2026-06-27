@@ -291,13 +291,62 @@ export class SupabaseService {
     }
   }
 
+  // --- CACHE ENGINE (5 MINUTES) ---
+  private static getCachedData<T>(key: string): T | null {
+    const cached = localStorage.getItem(`db_cache_${key}`);
+    if (!cached) return null;
+    try {
+      const parsed = JSON.parse(cached);
+      if (parsed && typeof parsed.timestamp === 'number') {
+        const elapsed = Date.now() - parsed.timestamp;
+        if (elapsed < 5 * 60 * 1000) { // 5 minutes in ms
+          return parsed.data as T;
+        }
+      }
+    } catch (e) {
+      console.warn('Error reading cache for', key, e);
+    }
+    return null;
+  }
+
+  private static setCachedData<T>(key: string, data: T): void {
+    try {
+      const item = {
+        data,
+        timestamp: Date.now()
+      };
+      localStorage.setItem(`db_cache_${key}`, JSON.stringify(item));
+    } catch (e) {
+      console.warn('Error writing cache for', key, e);
+    }
+  }
+
+  public static clearCache(key?: string): void {
+    if (key) {
+      localStorage.removeItem(`db_cache_${key}`);
+    } else {
+      const keys = ['products', 'orders', 'workers', 'audit_logs', 'security_alerts', 'shop_settings', 'product_categories', 'coupons', 'support_inquiries', 'visitor_history'];
+      keys.forEach(k => localStorage.removeItem(`db_cache_${k}`));
+    }
+  }
+
   // --- PRODUCTS ---
-  static async getProducts(): Promise<Product[]> {
+  static async getProducts(forceRefresh = false): Promise<Product[]> {
+    if (!forceRefresh) {
+      const cached = this.getCachedData<Product[]>('products');
+      if (cached) return cached;
+    }
     if (!this.isReal()) {
-      return getLocalStorageItem('shop_products', DEFAULT_PRODUCTS);
+      const local = getLocalStorageItem('shop_products', DEFAULT_PRODUCTS);
+      this.setCachedData('products', local);
+      return local;
     }
     const client = this.getClient();
-    if (!client) return getLocalStorageItem('shop_products', DEFAULT_PRODUCTS);
+    if (!client) {
+      const local = getLocalStorageItem('shop_products', DEFAULT_PRODUCTS);
+      this.setCachedData('products', local);
+      return local;
+    }
     try {
       const { data, error } = await client
         .from('products')
@@ -305,7 +354,9 @@ export class SupabaseService {
         .order('name');
       if (error) {
         console.warn('Supabase products fetch failed, using local local storage:', error);
-        return getLocalStorageItem('shop_products', DEFAULT_PRODUCTS);
+        const local = getLocalStorageItem('shop_products', DEFAULT_PRODUCTS);
+        this.setCachedData('products', local);
+        return local;
       }
       
       const localProducts = getLocalStorageItem<Product[]>('shop_products', DEFAULT_PRODUCTS);
@@ -313,19 +364,26 @@ export class SupabaseService {
         const localProd = localProducts.find(lp => lp.id === dbProd.id || lp.name === dbProd.name);
         return {
           ...dbProd,
-          currency: dbProd.currency || localProd?.currency || 'CUP'
+          currency: dbProd.currency || localProd?.currency || 'CUP',
+          quantity_prices: dbProd.quantity_prices || localProd?.quantity_prices || []
         };
       });
+      this.setCachedData('products', merged);
       return merged;
     } catch (e) {
       console.warn('Supabase products fetch exception, using local:', e);
-      return getLocalStorageItem('shop_products', DEFAULT_PRODUCTS);
+      const local = getLocalStorageItem('shop_products', DEFAULT_PRODUCTS);
+      this.setCachedData('products', local);
+      return local;
     }
   }
 
   static async saveProduct(product: Product): Promise<void> {
+    // Clear product cache first
+    this.clearCache('products');
+
     // 1. Always sync to mock local storage for high availability fallback
-    const products = await this.getProducts();
+    const products = await this.getProducts(true);
     const idx = products.findIndex(p => p.id === product.id);
     if (idx >= 0) {
       products[idx] = product;
@@ -353,7 +411,8 @@ export class SupabaseService {
             stock: product.stock,
             is_visible: product.is_visible,
             promotion_discount: product.promotion_discount,
-            currency: product.currency || 'CUP'
+            currency: product.currency || 'CUP',
+            quantity_prices: product.quantity_prices || []
           };
           
           const performSync = async (dataToSave: any) => {
@@ -423,7 +482,7 @@ export class SupabaseService {
                   product.id = inserted.id;
 
                   // Update offline fallback memory to match
-                  const fallbackList = await this.getProducts();
+                  const fallbackList = await this.getProducts(true);
                   const findIdx = fallbackList.findIndex(p => p.name === product.name);
                   if (findIdx >= 0) {
                     fallbackList[findIdx].id = inserted.id;
@@ -437,12 +496,27 @@ export class SupabaseService {
           try {
             await performSync(rowData);
           } catch (firstError: any) {
-            const errMsg = String(firstError?.message || '').toLowerCase();
-            // Fallback if their Supabase products table doesn't have the currency column yet
-            if (errMsg.includes('currency') && errMsg.includes('column')) {
+            let errMsg = String(firstError?.message || '').toLowerCase();
+            let currentData = { ...rowData };
+            if (errMsg.includes('quantity_prices') && (errMsg.includes('column') || errMsg.includes('does not exist'))) {
+              console.warn('The products table on Supabase is missing "quantity_prices" column. Retrying sync without "quantity_prices"...');
+              delete currentData.quantity_prices;
+              try {
+                await performSync(currentData);
+              } catch (retryError: any) {
+                errMsg = String(retryError?.message || '').toLowerCase();
+                if (errMsg.includes('currency') && errMsg.includes('column')) {
+                  console.warn('The products table on Supabase is missing "currency" column. Retrying sync without "currency"...');
+                  delete currentData.currency;
+                  await performSync(currentData);
+                } else {
+                  throw retryError;
+                }
+              }
+            } else if (errMsg.includes('currency') && errMsg.includes('column')) {
               console.warn('The products table on Supabase is missing "currency" column. Retrying sync without "currency"...');
-              const { currency, ...cleanRowData } = rowData;
-              await performSync(cleanRowData);
+              delete currentData.currency;
+              await performSync(currentData);
             } else {
               throw firstError;
             }
@@ -456,7 +530,8 @@ export class SupabaseService {
   }
 
   static async deleteProduct(id: string): Promise<void> {
-    const products = await this.getProducts();
+    this.clearCache('products');
+    const products = await this.getProducts(true);
     const prod = products.find(p => p.id === id);
     const updated = products.filter(p => p.id !== id);
     setLocalStorageItem('shop_products', updated);
@@ -482,12 +557,22 @@ export class SupabaseService {
   }
 
   // --- WORKERS ---
-  static async getWorkers(): Promise<Worker[]> {
+  static async getWorkers(forceRefresh = false): Promise<Worker[]> {
+    if (!forceRefresh) {
+      const cached = this.getCachedData<Worker[]>('workers');
+      if (cached) return cached;
+    }
     if (!this.isReal()) {
-      return getLocalStorageItem('shop_workers', DEFAULT_WORKERS as Worker[]);
+      const local = getLocalStorageItem('shop_workers', DEFAULT_WORKERS as Worker[]);
+      this.setCachedData('workers', local);
+      return local;
     }
     const client = this.getClient();
-    if (!client) return getLocalStorageItem('shop_workers', DEFAULT_WORKERS as Worker[]);
+    if (!client) {
+      const local = getLocalStorageItem('shop_workers', DEFAULT_WORKERS as Worker[]);
+      this.setCachedData('workers', local);
+      return local;
+    }
     try {
       const { data, error } = await client
         .from('workers')
@@ -495,18 +580,24 @@ export class SupabaseService {
         .order('name');
       if (error) {
         console.warn('Real workers fetch failed, using local:', error);
-        return getLocalStorageItem('shop_workers', DEFAULT_WORKERS as Worker[]);
+        const local = getLocalStorageItem('shop_workers', DEFAULT_WORKERS as Worker[]);
+        this.setCachedData('workers', local);
+        return local;
       }
+      this.setCachedData('workers', data || []);
       return data || [];
     } catch (e) {
       console.warn('Real workers fetch error, using local:', e);
-      return getLocalStorageItem('shop_workers', DEFAULT_WORKERS as Worker[]);
+      const local = getLocalStorageItem('shop_workers', DEFAULT_WORKERS as Worker[]);
+      this.setCachedData('workers', local);
+      return local;
     }
   }
 
   static async saveWorker(worker: Worker, plainPassword?: string): Promise<void> {
+    this.clearCache('workers');
     // 1. Mock store sync
-    const workers = await this.getWorkers();
+    const workers = await this.getWorkers(true);
     let dbWorker = { ...worker };
     
     if (plainPassword) {
@@ -623,7 +714,8 @@ export class SupabaseService {
   }
 
   static async deleteWorker(id: string): Promise<void> {
-    const workers = await this.getWorkers();
+    this.clearCache('workers');
+    const workers = await this.getWorkers(true);
     const worker = workers.find(w => w.id === id);
     const updated = workers.filter(w => w.id !== id);
     setLocalStorageItem('shop_workers', updated);
@@ -648,12 +740,22 @@ export class SupabaseService {
   }
 
   // --- ORDERS ---
-  static async getOrders(): Promise<Order[]> {
+  static async getOrders(forceRefresh = false): Promise<Order[]> {
+    if (!forceRefresh) {
+      const cached = this.getCachedData<Order[]>('orders');
+      if (cached) return cached;
+    }
     if (!this.isReal()) {
-      return getLocalStorageItem('shop_orders', DEFAULT_ORDERS);
+      const local = getLocalStorageItem('shop_orders', DEFAULT_ORDERS);
+      this.setCachedData('orders', local);
+      return local;
     }
     const client = this.getClient();
-    if (!client) return getLocalStorageItem('shop_orders', DEFAULT_ORDERS);
+    if (!client) {
+      const local = getLocalStorageItem('shop_orders', DEFAULT_ORDERS);
+      this.setCachedData('orders', local);
+      return local;
+    }
     try {
       const { data, error } = await client
         .from('orders')
@@ -661,20 +763,27 @@ export class SupabaseService {
         .order('created_at', { ascending: false });
       if (error) {
         console.warn('Real orders fetch failed, using local fallback:', error);
-        return getLocalStorageItem('shop_orders', DEFAULT_ORDERS);
+        const local = getLocalStorageItem('shop_orders', DEFAULT_ORDERS);
+        this.setCachedData('orders', local);
+        return local;
       }
-      return (data || []).map((o: any) => ({
+      const mapped = (data || []).map((o: any) => ({
         ...o,
         items: typeof o.items === 'string' ? JSON.parse(o.items) : o.items
       }));
+      this.setCachedData('orders', mapped);
+      return mapped;
     } catch (e) {
       console.warn('Real orders fetch exception:', e);
-      return getLocalStorageItem('shop_orders', DEFAULT_ORDERS);
+      const local = getLocalStorageItem('shop_orders', DEFAULT_ORDERS);
+      this.setCachedData('orders', local);
+      return local;
     }
   }
 
   static async createOrder(orderData: Omit<Order, 'id' | 'created_at' | 'status'>): Promise<Order> {
-    const orders = await this.getOrders();
+    this.clearCache('orders');
+    const orders = await this.getOrders(true);
     const newOrder: Order = {
       ...orderData,
       id: `ord-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -685,7 +794,7 @@ export class SupabaseService {
     setLocalStorageItem('shop_orders', orders);
 
     // Apply stock deduction automatically on available items
-    const products = await this.getProducts();
+    const products = await this.getProducts(true);
     for (const item of newOrder.items) {
       const targetProd = products.find(p => p.id === item.product_id);
       if (targetProd) {
@@ -778,7 +887,8 @@ export class SupabaseService {
     processedBy: string, 
     processedRole: string
   ): Promise<void> {
-    const orders = await this.getOrders();
+    this.clearCache('orders');
+    const orders = await this.getOrders(true);
     const idx = orders.findIndex(o => o.id === orderId);
     if (idx >= 0) {
       const oldStatus = orders[idx].status;
@@ -790,7 +900,7 @@ export class SupabaseService {
 
       // Revert stock if canceled
       if (status === 'cancelado' && oldStatus !== 'cancelado') {
-        const products = await this.getProducts();
+        const products = await this.getProducts(true);
         for (const item of orders[idx].items) {
           const targetProd = products.find(p => p.id === item.product_id);
           if (targetProd) {
@@ -829,12 +939,22 @@ export class SupabaseService {
   }
 
   // --- CONFIG / SETTINGS ---
-  static async getSettings(): Promise<ShopSettings> {
+  static async getSettings(forceRefresh = false): Promise<ShopSettings> {
+    if (!forceRefresh) {
+      const cached = this.getCachedData<ShopSettings>('shop_settings');
+      if (cached) return cached;
+    }
     if (!this.isReal()) {
-      return getLocalStorageItem('shop_settings', DEFAULT_SETTINGS);
+      const local = getLocalStorageItem('shop_settings', DEFAULT_SETTINGS);
+      this.setCachedData('shop_settings', local);
+      return local;
     }
     const client = this.getClient();
-    if (!client) return getLocalStorageItem('shop_settings', DEFAULT_SETTINGS);
+    if (!client) {
+      const local = getLocalStorageItem('shop_settings', DEFAULT_SETTINGS);
+      this.setCachedData('shop_settings', local);
+      return local;
+    }
     try {
       const { data, error } = await client
         .from('shop_settings')
@@ -842,15 +962,22 @@ export class SupabaseService {
         .eq('id', 'singleton')
         .maybeSingle();
       if (error || !data) {
-        return getLocalStorageItem('shop_settings', DEFAULT_SETTINGS);
+        const local = getLocalStorageItem('shop_settings', DEFAULT_SETTINGS);
+        this.setCachedData('shop_settings', local);
+        return local;
       }
-      return { ...DEFAULT_SETTINGS, ...data };
+      const merged = { ...DEFAULT_SETTINGS, ...data };
+      this.setCachedData('shop_settings', merged);
+      return merged;
     } catch (e) {
-      return getLocalStorageItem('shop_settings', DEFAULT_SETTINGS);
+      const local = getLocalStorageItem('shop_settings', DEFAULT_SETTINGS);
+      this.setCachedData('shop_settings', local);
+      return local;
     }
   }
 
   static async saveSettings(settings: ShopSettings, adminName: string): Promise<void> {
+    this.clearCache('shop_settings');
     setLocalStorageItem('shop_settings', settings);
     this.logAudit(adminName, 'Actualizar Configuración', `Se modificaron los datos globales de la tienda.`);
 
@@ -869,26 +996,44 @@ export class SupabaseService {
   }
 
   // --- SECURITY ALERTS ---
-  static async getAlerts(): Promise<SecurityAlert[]> {
+  static async getAlerts(forceRefresh = false): Promise<SecurityAlert[]> {
+    if (!forceRefresh) {
+      const cached = this.getCachedData<SecurityAlert[]>('security_alerts');
+      if (cached) return cached;
+    }
     if (!this.isReal()) {
-      return getLocalStorageItem('shop_alerts', DEFAULT_ALERTS);
+      const local = getLocalStorageItem('shop_alerts', DEFAULT_ALERTS);
+      this.setCachedData('security_alerts', local);
+      return local;
     }
     const client = this.getClient();
-    if (!client) return getLocalStorageItem('shop_alerts', DEFAULT_ALERTS);
+    if (!client) {
+      const local = getLocalStorageItem('shop_alerts', DEFAULT_ALERTS);
+      this.setCachedData('security_alerts', local);
+      return local;
+    }
     try {
       const { data, error } = await client
         .from('security_alerts')
         .select('*')
         .order('timestamp', { ascending: false });
-      if (error) return getLocalStorageItem('shop_alerts', DEFAULT_ALERTS);
+      if (error) {
+        const local = getLocalStorageItem('shop_alerts', DEFAULT_ALERTS);
+        this.setCachedData('security_alerts', local);
+        return local;
+      }
+      this.setCachedData('security_alerts', data || []);
       return data || [];
     } catch (e) {
-      return getLocalStorageItem('shop_alerts', DEFAULT_ALERTS);
+      const local = getLocalStorageItem('shop_alerts', DEFAULT_ALERTS);
+      this.setCachedData('security_alerts', local);
+      return local;
     }
   }
 
   static async triggerAlert(type: SecurityAlert['type'], severity: SecurityAlert['severity'], message: string): Promise<void> {
-    const alerts = await this.getAlerts();
+    this.clearCache('security_alerts');
+    const alerts = await this.getAlerts(true);
     const newAlert: SecurityAlert = {
       id: `al-${Date.now()}`,
       timestamp: new Date().toISOString(),
@@ -918,7 +1063,8 @@ export class SupabaseService {
   }
 
   static async resolveAlert(id: string): Promise<void> {
-    const alerts = await this.getAlerts();
+    this.clearCache('security_alerts');
+    const alerts = await this.getAlerts(true);
     const idx = alerts.findIndex(a => a.id === id);
     if (idx >= 0) {
       alerts[idx].resolved = true;
@@ -941,25 +1087,43 @@ export class SupabaseService {
   }
 
   // --- AUDIT LOGS ---
-  static async getAuditLogs(): Promise<AuditLog[]> {
+  static async getAuditLogs(forceRefresh = false): Promise<AuditLog[]> {
+    if (!forceRefresh) {
+      const cached = this.getCachedData<AuditLog[]>('audit_logs');
+      if (cached) return cached;
+    }
     if (!this.isReal()) {
-      return getLocalStorageItem('shop_audits', DEFAULT_AUDITS);
+      const local = getLocalStorageItem('shop_audits', DEFAULT_AUDITS);
+      this.setCachedData('audit_logs', local);
+      return local;
     }
     const client = this.getClient();
-    if (!client) return getLocalStorageItem('shop_audits', DEFAULT_AUDITS);
+    if (!client) {
+      const local = getLocalStorageItem('shop_audits', DEFAULT_AUDITS);
+      this.setCachedData('audit_logs', local);
+      return local;
+    }
     try {
       const { data, error } = await client
         .from('audit_logs')
         .select('*')
         .order('timestamp', { ascending: false });
-      if (error) return getLocalStorageItem('shop_audits', DEFAULT_AUDITS);
+      if (error) {
+        const local = getLocalStorageItem('shop_audits', DEFAULT_AUDITS);
+        this.setCachedData('audit_logs', local);
+        return local;
+      }
+      this.setCachedData('audit_logs', data || []);
       return data || [];
     } catch (e) {
-      return getLocalStorageItem('shop_audits', DEFAULT_AUDITS);
+      const local = getLocalStorageItem('shop_audits', DEFAULT_AUDITS);
+      this.setCachedData('audit_logs', local);
+      return local;
     }
   }
 
   static logAudit(user: string, action: string, details: string): void {
+    this.clearCache('audit_logs');
     const audits = getLocalStorageItem('shop_audits', DEFAULT_AUDITS);
     const newAudit: AuditLog = {
       id: `audit-${Date.now()}`,
@@ -1075,7 +1239,11 @@ export class SupabaseService {
   }
 
   // --- PRODUCT CATEGORIES ---
-  static async getCategories(): Promise<ProductCategory[]> {
+  static async getCategories(forceRefresh = false): Promise<ProductCategory[]> {
+    if (!forceRefresh) {
+      const cached = this.getCachedData<ProductCategory[]>('product_categories');
+      if (cached) return cached;
+    }
     const defaultCats: ProductCategory[] = [
       { id: 'cat-1', name: 'Tecnología' },
       { id: 'cat-2', name: 'Audio' },
@@ -1084,20 +1252,33 @@ export class SupabaseService {
       { id: 'cat-5', name: 'Deportes' }
     ];
     const local = getLocalStorageItem<ProductCategory[]>('shop_categories', defaultCats);
-    if (!this.isReal()) return local;
+    if (!this.isReal()) {
+      this.setCachedData('product_categories', local);
+      return local;
+    }
     const client = this.getClient();
-    if (!client) return local;
+    if (!client) {
+      this.setCachedData('product_categories', local);
+      return local;
+    }
     try {
       const { data, error } = await client.from('product_categories').select('*').order('name');
-      if (error) return local;
-      return data && data.length > 0 ? data : local;
+      if (error) {
+        this.setCachedData('product_categories', local);
+        return local;
+      }
+      const result = data && data.length > 0 ? data : local;
+      this.setCachedData('product_categories', result);
+      return result;
     } catch {
+      this.setCachedData('product_categories', local);
       return local;
     }
   }
 
   static async saveCategory(category: ProductCategory): Promise<void> {
-    const cats = await this.getCategories();
+    this.clearCache('product_categories');
+    const cats = await this.getCategories(true);
     const idx = cats.findIndex(c => c.id === category.id);
     if (idx >= 0) {
       cats[idx] = category;
@@ -1119,7 +1300,8 @@ export class SupabaseService {
   }
 
   static async deleteCategory(id: string): Promise<void> {
-    const cats = await this.getCategories();
+    this.clearCache('product_categories');
+    const cats = await this.getCategories(true);
     const filtered = cats.filter(c => c.id !== id);
     setLocalStorageItem('shop_categories', filtered);
 
@@ -1136,27 +1318,44 @@ export class SupabaseService {
   }
 
   // --- COUPONS / CUPONES ---
-  static async getCoupons(): Promise<Coupon[]> {
+  static async getCoupons(forceRefresh = false): Promise<Coupon[]> {
+    if (!forceRefresh) {
+      const cached = this.getCachedData<Coupon[]>('coupons');
+      if (cached) return cached;
+    }
     const defaultCoupons: Coupon[] = [
       { id: 'cp-1', code: 'BIENVENIDO10', discount_type: 'percent', discount_value: 10, is_active: true, min_purchase_amount: 0 },
       { id: 'cp-2', code: 'PROMO20', discount_type: 'percent', discount_value: 20, is_active: true, min_purchase_amount: 0 },
       { id: 'cp-3', code: 'DESCON99', discount_type: 'fixed', discount_value: 99, is_active: true, min_purchase_amount: 0 }
     ];
     const local = getLocalStorageItem<Coupon[]>('shop_coupons', defaultCoupons);
-    if (!this.isReal()) return local;
+    if (!this.isReal()) {
+      this.setCachedData('coupons', local);
+      return local;
+    }
     const client = this.getClient();
-    if (!client) return local;
+    if (!client) {
+      this.setCachedData('coupons', local);
+      return local;
+    }
     try {
       const { data, error } = await client.from('coupons').select('*').order('code');
-      if (error) return local;
-      return data && data.length > 0 ? data : local;
+      if (error) {
+        this.setCachedData('coupons', local);
+        return local;
+      }
+      const result = data && data.length > 0 ? data : local;
+      this.setCachedData('coupons', result);
+      return result;
     } catch {
+      this.setCachedData('coupons', local);
       return local;
     }
   }
 
   static async saveCoupon(coupon: Coupon): Promise<void> {
-    const coupons = await this.getCoupons();
+    this.clearCache('coupons');
+    const coupons = await this.getCoupons(true);
     const idx = coupons.findIndex(c => c.id === coupon.id);
     if (idx >= 0) {
       coupons[idx] = coupon;
@@ -1196,7 +1395,8 @@ export class SupabaseService {
   }
 
   static async deleteCoupon(id: string): Promise<void> {
-    const coupons = await this.getCoupons();
+    this.clearCache('coupons');
+    const coupons = await this.getCoupons(true);
     const filtered = coupons.filter(c => c.id !== id);
     setLocalStorageItem('shop_coupons', filtered);
 
@@ -1295,7 +1495,11 @@ export class SupabaseService {
   }
 
   // --- SUPPORT INQUIRIES ---
-  static async getSupportInquiries(): Promise<SupportInquiry[]> {
+  static async getSupportInquiries(forceRefresh = false): Promise<SupportInquiry[]> {
+    if (!forceRefresh) {
+      const cached = this.getCachedData<SupportInquiry[]>('support_inquiries');
+      if (cached) return cached;
+    }
     const defaultInquiries: SupportInquiry[] = [
       { 
         id: 'sop-1', 
@@ -1307,20 +1511,33 @@ export class SupabaseService {
       }
     ];
     const local = getLocalStorageItem<SupportInquiry[]>('support_inquiries', defaultInquiries);
-    if (!this.isReal()) return local;
+    if (!this.isReal()) {
+      this.setCachedData('support_inquiries', local);
+      return local;
+    }
     const client = this.getClient();
-    if (!client) return local;
+    if (!client) {
+      this.setCachedData('support_inquiries', local);
+      return local;
+    }
     try {
       const { data, error } = await client.from('support_inquiries').select('*').order('created_at', { ascending: false });
-      if (error) return local;
-      return data || [];
+      if (error) {
+        this.setCachedData('support_inquiries', local);
+        return local;
+      }
+      const result = data || [];
+      this.setCachedData('support_inquiries', result);
+      return result;
     } catch {
+      this.setCachedData('support_inquiries', local);
       return local;
     }
   }
 
   static async saveSupportInquiry(inquiry: SupportInquiry): Promise<void> {
-    const list = await this.getSupportInquiries();
+    this.clearCache('support_inquiries');
+    const list = await this.getSupportInquiries(true);
     const idx = list.findIndex(item => item.id === inquiry.id);
     if (idx >= 0) {
       list[idx] = inquiry;
@@ -1375,7 +1592,8 @@ export class SupabaseService {
   }
 
   static async deleteSupportInquiry(id: string): Promise<void> {
-    const list = await this.getSupportInquiries();
+    this.clearCache('support_inquiries');
+    const list = await this.getSupportInquiries(true);
     const filtered = list.filter(item => item.id !== id);
     setLocalStorageItem('support_inquiries', filtered);
 
@@ -1455,7 +1673,11 @@ export class SupabaseService {
   }
 
   // --- VISITOR TRACKING ---
-  static async getVisitorHistory(): Promise<VisitorHistoryEntry[]> {
+  static async getVisitorHistory(forceRefresh = false): Promise<VisitorHistoryEntry[]> {
+    if (!forceRefresh) {
+      const cached = this.getCachedData<VisitorHistoryEntry[]>('visitor_history');
+      if (cached) return cached;
+    }
     const localHistory = getLocalStorageItem<VisitorHistoryEntry[]>('visitor_history', []);
     
     // Auto-cleanup older than 60 days
@@ -1466,11 +1688,15 @@ export class SupabaseService {
     }
 
     if (!this.isReal()) {
+      this.setCachedData('visitor_history', cleanedLocal);
       return cleanedLocal;
     }
 
     const client = this.getClient();
-    if (!client) return cleanedLocal;
+    if (!client) {
+      this.setCachedData('visitor_history', cleanedLocal);
+      return cleanedLocal;
+    }
     try {
       const { data, error } = await client
         .from('visitor_history')
@@ -1479,6 +1705,7 @@ export class SupabaseService {
         
       if (error) {
         console.warn('Real visitor history fetch failed, using local:', error);
+        this.setCachedData('visitor_history', cleanedLocal);
         return cleanedLocal;
       }
       
@@ -1486,9 +1713,12 @@ export class SupabaseService {
       const sixtyDaysAgoISO = new Date(sixtyDaysAgo).toISOString();
       await client.from('visitor_history').delete().lt('timestamp', sixtyDaysAgoISO);
       
-      return data || [];
+      const result = data || [];
+      this.setCachedData('visitor_history', result);
+      return result;
     } catch (e) {
       console.warn('Real visitor history fetch exception:', e);
+      this.setCachedData('visitor_history', cleanedLocal);
       return cleanedLocal;
     }
   }
@@ -1500,6 +1730,7 @@ export class SupabaseService {
     country: string = 'Cuba', 
     city: string = 'La Habana'
   ): Promise<void> {
+    this.clearCache('visitor_history');
     let browser = 'Unknown Browser';
     let os = 'Unknown OS';
     
@@ -1556,6 +1787,7 @@ export class SupabaseService {
   }
 
   static async clearVisitorHistory(): Promise<void> {
+    this.clearCache('visitor_history');
     setLocalStorageItem('visitor_history', []);
     if (this.isReal()) {
       const client = this.getClient();
