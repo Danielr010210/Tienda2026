@@ -39,6 +39,18 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
 
+  // Client-Side Security CAPTCHA Challenge (Idea B)
+  const [captchaCode, setCaptchaCode] = useState(() => {
+    return Math.floor(1000 + Math.random() * 9000).toString();
+  });
+  const [captchaInput, setCaptchaInput] = useState('');
+
+  const generateCaptcha = () => {
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    setCaptchaCode(code);
+    setCaptchaInput('');
+  };
+
   // Forced Password Reset States (First login rules & secure enforcement)
   const [resetWorker, setResetWorker] = useState<Worker | null>(null);
   const [newPasswordInput, setNewPasswordInput] = useState('');
@@ -495,6 +507,8 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     sql += `  promotion_discount NUMERIC(5, 2) NOT NULL DEFAULT 0,\n`;
     sql += `  currency VARCHAR(10) DEFAULT 'CUP',\n`;
     sql += `  quantity_prices JSONB DEFAULT '[]'::jsonb,\n`;
+    sql += `  variants JSONB DEFAULT '[]'::jsonb,\n`;
+    sql += `  gallery_images TEXT[] DEFAULT '{}'::text[],\n`;
     sql += `  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP\n`;
     sql += `);\n\n`;
 
@@ -669,7 +683,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     if (products.length > 0) {
       sql += `-- Datos para 'products'\n`;
       products.forEach(p => {
-        sql += `INSERT INTO products (id, name, description, price, category, image_url, stock, is_visible, promotion_discount, currency, quantity_prices, created_at) VALUES (\n`;
+        sql += `INSERT INTO products (id, name, description, price, category, image_url, stock, is_visible, promotion_discount, currency, quantity_prices, variants, gallery_images, created_at) VALUES (\n`;
         sql += `  ${escapeSqlValue(p.id)},\n`;
         sql += `  ${escapeSqlValue(p.name)},\n`;
         sql += `  ${escapeSqlValue(p.description)},\n`;
@@ -681,8 +695,10 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
         sql += `  ${p.promotion_discount},\n`;
         sql += `  ${escapeSqlValue(p.currency || 'CUP')},\n`;
         sql += `  ${escapeSqlValue(p.quantity_prices || [])},\n`;
+        sql += `  ${escapeSqlValue(p.variants || [])},\n`;
+        sql += `  ${escapeSqlArray(p.gallery_images || [])},\n`;
         sql += `  ${escapeSqlValue(p.created_at || new Date().toISOString())}\n`;
-        sql += `) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, price = EXCLUDED.price, category = EXCLUDED.category, image_url = EXCLUDED.image_url, stock = EXCLUDED.stock, is_visible = EXCLUDED.is_visible, promotion_discount = EXCLUDED.promotion_discount, currency = EXCLUDED.currency, quantity_prices = EXCLUDED.quantity_prices;\n`;
+        sql += `) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, price = EXCLUDED.price, category = EXCLUDED.category, image_url = EXCLUDED.image_url, stock = EXCLUDED.stock, is_visible = EXCLUDED.is_visible, promotion_discount = EXCLUDED.promotion_discount, currency = EXCLUDED.currency, quantity_prices = EXCLUDED.quantity_prices, variants = EXCLUDED.variants, gallery_images = EXCLUDED.gallery_images;\n`;
       });
       sql += `\n`;
     }
@@ -1043,6 +1059,12 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       return;
     }
 
+    if (captchaInput !== captchaCode) {
+      setLoginError('El código CAPTCHA de 4 dígitos es incorrecto. Verifique y digite de nuevo.');
+      generateCaptcha();
+      return;
+    }
+
     setLoginLoading(true);
     try {
       const response = await SupabaseService.login(usernameInput.trim(), passwordInput);
@@ -1056,12 +1078,14 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
           setPwdResetSuccess(false);
           setUsernameInput('');
           setPasswordInput('');
+          setCaptchaInput('');
           return;
         }
         setCurrentUser(response.worker);
         localStorage.setItem('active_worker_session', JSON.stringify(response.worker));
         setUsernameInput('');
         setPasswordInput('');
+        setCaptchaInput('');
         // Push initial routing based on role
         if (response.worker.role === 'empleado') {
           setActiveTab('pedidos'); // Go immediately to active orders
@@ -1070,9 +1094,11 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
         }
       } else {
         setLoginError(response.error || 'Credenciales inválidas.');
+        generateCaptcha();
       }
     } catch (err) {
       setLoginError('Error de autenticación. Intente más tarde.');
+      generateCaptcha();
     } finally {
       setLoginLoading(false);
     }
@@ -1463,7 +1489,9 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       is_visible: productForm.is_visible !== false,
       promotion_discount: Number(productForm.promotion_discount) || 0,
       currency: productForm.currency || 'CUP',
-      quantity_prices: productForm.quantity_prices || []
+      quantity_prices: productForm.quantity_prices || [],
+      variants: productForm.variants || [],
+      gallery_images: productForm.gallery_images || []
     };
 
     try {
@@ -2240,6 +2268,76 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                     >
                       ¿Olvidaste tu contraseña?
                     </button>
+                  </div>
+
+                  {/* CAPTCHA Challenge (Idea B) */}
+                  <div className="bg-slate-950/40 p-4 rounded-xl border border-slate-800/80 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-[10px] font-black text-slate-300 uppercase tracking-widest">
+                        🛡️ Verificación CAPTCHA
+                      </label>
+                      <button
+                        type="button"
+                        onClick={generateCaptcha}
+                        className="p-1 hover:bg-slate-800 rounded-lg text-teal-400 hover:text-teal-300 transition-colors cursor-pointer"
+                        title="Generar otro código"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {/* Visual distorted CAPTCHA Code Box */}
+                      <div className="flex-1 bg-slate-950 select-none h-11 border border-slate-800 rounded-xl relative flex items-center justify-center overflow-hidden bg-[radial-gradient(#1e293b_1.5px,transparent_1.5px)] [background-size:8px_8px] shadow-inner">
+                        {/* Decorative background grid and lines */}
+                        <div className="absolute inset-0 opacity-20 pointer-events-none flex flex-col justify-around">
+                          <div className="h-[1px] bg-red-500/40 w-full transform -rotate-3"></div>
+                          <div className="h-[1px] bg-teal-500/40 w-full transform rotate-6"></div>
+                        </div>
+                        {/* CAPTCHA Digits */}
+                        <div className="flex items-center gap-2 relative z-10">
+                          {captchaCode.split('').map((char, index) => {
+                            // Seed random offsets using simple math based on index and the char value
+                            const rotation = ((index * 7 + parseInt(char || '0') * 3) % 24) - 12; // -12deg to 12deg
+                            const scale = 1 + (((index + parseInt(char || '0')) % 4) * 0.08); // 1.0 to 1.24
+                            const colors = [
+                              'text-teal-400', 'text-amber-400', 'text-emerald-400', 
+                              'text-cyan-400', 'text-sky-400', 'text-rose-400'
+                            ];
+                            const color = colors[(index * 2 + parseInt(char || '0')) % colors.length];
+                            
+                            return (
+                              <span
+                                key={index}
+                                style={{
+                                  transform: `rotate(${rotation}deg) scale(${scale})`,
+                                  display: 'inline-block'
+                                }}
+                                className={`text-base font-black font-mono tracking-widest filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)] ${color}`}
+                              >
+                                {char}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* User input field for Captcha */}
+                      <div className="w-1/2">
+                        <input
+                          type="text"
+                          required
+                          maxLength={4}
+                          placeholder="Digite el código"
+                          value={captchaInput}
+                          onChange={(e) => setCaptchaInput(e.target.value.replace(/\D/g, ''))} // only allow numbers
+                          className="w-full text-center text-xs p-3 bg-slate-950 text-white border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono tracking-widest placeholder:tracking-normal placeholder:font-sans placeholder:text-[10px]"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-slate-500 leading-normal">
+                      Escribe el número de 4 dígitos para certificar que eres un colaborador autorizado.
+                    </p>
                   </div>
 
                   <button
@@ -3019,7 +3117,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                       onClick={() => {
                         setEditingProduct(null);
                         setProductForm({
-                          name: '', price: 0, category: categories[0]?.name || 'Tecnología', image_url: '', stock: 10, is_visible: true, promotion_discount: 0, description: '', currency: settings?.currency || 'CUP'
+                          name: '', price: 0, category: categories[0]?.name || 'Tecnología', image_url: '', stock: 10, is_visible: true, promotion_discount: 0, description: '', currency: settings?.currency || 'CUP', variants: [], gallery_images: []
                         });
                         setIsProductModalOpen(true);
                       }}
@@ -3105,7 +3203,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                                 onClick={() => {
                                   setEditingProduct(null);
                                   setProductForm({
-                                    name: '', price: 0, category: cat.name, image_url: '', stock: 10, is_visible: true, promotion_discount: 0, description: '', currency: settings?.currency || 'CUP'
+                                    name: '', price: 0, category: cat.name, image_url: '', stock: 10, is_visible: true, promotion_discount: 0, description: '', currency: settings?.currency || 'CUP', variants: [], gallery_images: []
                                   });
                                   setIsProductModalOpen(true);
                                 }}
@@ -5604,6 +5702,221 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Galería de Imágenes Secundarias */}
+              <div className="bg-slate-50 border border-slate-200/60 p-4 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[11px] font-black uppercase text-slate-800 tracking-wider flex items-center gap-2">
+                    🖼️ Galería de Fotos Adicionales (Mismo Modelo)
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const currentGallery = productForm.gallery_images || [];
+                      setProductForm({
+                        ...productForm,
+                        gallery_images: [...currentGallery, '']
+                      });
+                    }}
+                    className="bg-[#14B8A6] hover:bg-teal-650 text-slate-950 font-black text-[10px] py-1 px-2.5 rounded-lg flex items-center gap-1 transition-all cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Agregar Foto</span>
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  Agrega URLs de fotos adicionales de este producto. Se mostrarán como miniaturas debajo de la imagen principal.
+                </p>
+
+                {(productForm.gallery_images || []).length === 0 ? (
+                  <div className="text-center py-2 text-[10px] text-slate-400 italic">
+                    Sin imágenes adicionales en la galería.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[150px] overflow-y-auto pr-1">
+                    {(productForm.gallery_images || []).map((imgUrl, index) => (
+                      <div key={index} className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-100 shadow-sm">
+                        <input
+                          type="url"
+                          placeholder="https://images.unsplash.com/..."
+                          value={imgUrl}
+                          onChange={(e) => {
+                            const updated = [...(productForm.gallery_images || [])];
+                            updated[index] = e.target.value;
+                            setProductForm({ ...productForm, gallery_images: updated });
+                          }}
+                          className="flex-1 text-xs p-1.5 bg-slate-50 border border-gray-200 rounded-md font-mono"
+                          required
+                        />
+                        {imgUrl && (
+                          <img
+                            src={imgUrl}
+                            alt="miniatura"
+                            className="w-7 h-7 object-cover rounded-md border"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              (e.target as any).src = 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=80&q=80';
+                            }}
+                          />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = (productForm.gallery_images || []).filter((_, idx) => idx !== index);
+                            setProductForm({ ...productForm, gallery_images: updated });
+                          }}
+                          className="text-red-500 hover:text-red-700 p-1 bg-red-50 rounded hover:bg-red-100 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Variantes del Producto */}
+              <div className="bg-slate-50 border border-slate-200/60 p-4 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[11px] font-black uppercase text-slate-800 tracking-wider flex items-center gap-2">
+                    🎨 Variaciones (Colores, Sabores, etc.)
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const currentVariants = productForm.variants || [];
+                      setProductForm({
+                        ...productForm,
+                        variants: [
+                          ...currentVariants,
+                          { id: `var-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`, name: '', image_url: '' }
+                        ]
+                      });
+                    }}
+                    className="bg-[#14B8A6] hover:bg-teal-650 text-slate-950 font-black text-[10px] py-1 px-2.5 rounded-lg flex items-center gap-1 transition-all cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Agregar Variante</span>
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  Define el mismo producto pero en otros colores/sabores. Cada uno debe llevar su propia foto. Al hacer clic en el botón de color/sabor en la tienda se actualizará la imagen principal.
+                </p>
+
+                {(productForm.variants || []).length === 0 ? (
+                  <div className="text-center py-2 text-[10px] text-slate-400 italic">
+                    Sin variantes definidas (producto único).
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
+                    {(productForm.variants || []).map((variant, index) => (
+                      <div key={variant.id} className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm space-y-2 text-left relative">
+                        <div className="absolute top-2 right-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = (productForm.variants || []).filter((_, idx) => idx !== index);
+                              setProductForm({ ...productForm, variants: updated });
+                            }}
+                            className="text-red-500 hover:text-red-750 p-1.5 bg-red-50 hover:bg-red-100 rounded-lg transition-colors cursor-pointer"
+                            title="Eliminar variante"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 pr-6">
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest mb-0.5">Nombre (Ej: Rojo, Fresa)</label>
+                            <input
+                              type="text"
+                              placeholder="Ej: Azul Marino"
+                              value={variant.name}
+                              onChange={(e) => {
+                                const updated = [...(productForm.variants || [])];
+                                updated[index] = { ...updated[index], name: e.target.value };
+                                setProductForm({ ...productForm, variants: updated });
+                              }}
+                              className="w-full text-xs p-1.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest mb-0.5">Imagen de la Variante</label>
+                            <input
+                              type="url"
+                              placeholder="https://..."
+                              value={variant.image_url}
+                              onChange={(e) => {
+                                const updated = [...(productForm.variants || [])];
+                                updated[index] = { ...updated[index], image_url: e.target.value };
+                                setProductForm({ ...productForm, variants: updated });
+                              }}
+                              className="w-full text-[10px] p-1.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none font-mono"
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest mb-0.5">Precio Específico (Opcional)</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              placeholder="Usa el precio base si queda vacío"
+                              value={variant.price || ''}
+                              onChange={(e) => {
+                                const updated = [...(productForm.variants || [])];
+                                updated[index] = { 
+                                  ...updated[index], 
+                                  price: e.target.value ? Number(e.target.value) : undefined 
+                                };
+                                setProductForm({ ...productForm, variants: updated });
+                              }}
+                              className="w-full text-[10px] p-1.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest mb-0.5">Existencia (Opcional)</label>
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder="Usa el stock base si queda vacío"
+                              value={variant.stock !== undefined ? variant.stock : ''}
+                              onChange={(e) => {
+                                const updated = [...(productForm.variants || [])];
+                                updated[index] = { 
+                                  ...updated[index], 
+                                  stock: e.target.value ? Number(e.target.value) : undefined 
+                                };
+                                setProductForm({ ...productForm, variants: updated });
+                              }}
+                              className="w-full text-[10px] p-1.5 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        {variant.image_url && (
+                          <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                            <img
+                              src={variant.image_url}
+                              alt="previa variante"
+                              className="w-6 h-6 object-cover rounded-md border"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => {
+                                (e.target as any).src = 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=80&q=80';
+                              }}
+                            />
+                            <span className="text-[8px] text-slate-400 truncate max-w-[250px] font-mono">
+                              {variant.image_url}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2 pt-1">

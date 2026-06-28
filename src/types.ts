@@ -10,6 +10,14 @@ export interface QuantityPrice {
   price: number;
 }
 
+export interface ProductVariant {
+  id: string;
+  name: string;
+  image_url: string;
+  price?: number;
+  stock?: number;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -23,6 +31,8 @@ export interface Product {
   currency?: string; // Specific product currency override
   created_at?: string;
   quantity_prices?: QuantityPrice[];
+  variants?: ProductVariant[];
+  gallery_images?: string[];
 }
 
 export interface Worker {

@@ -365,7 +365,9 @@ export class SupabaseService {
         return {
           ...dbProd,
           currency: dbProd.currency || localProd?.currency || 'CUP',
-          quantity_prices: dbProd.quantity_prices || localProd?.quantity_prices || []
+          quantity_prices: dbProd.quantity_prices || localProd?.quantity_prices || [],
+          variants: dbProd.variants || localProd?.variants || [],
+          gallery_images: dbProd.gallery_images || localProd?.gallery_images || []
         };
       });
       this.setCachedData('products', merged);
@@ -412,7 +414,9 @@ export class SupabaseService {
             is_visible: product.is_visible,
             promotion_discount: product.promotion_discount,
             currency: product.currency || 'CUP',
-            quantity_prices: product.quantity_prices || []
+            quantity_prices: product.quantity_prices || [],
+            variants: product.variants || [],
+            gallery_images: product.gallery_images || []
           };
           
           const performSync = async (dataToSave: any) => {
@@ -1267,7 +1271,7 @@ export class SupabaseService {
         this.setCachedData('product_categories', local);
         return local;
       }
-      const result = data && data.length > 0 ? data : local;
+      const result = data || [];
       this.setCachedData('product_categories', result);
       return result;
     } catch {

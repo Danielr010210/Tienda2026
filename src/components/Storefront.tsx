@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Product, Order, ShopSettings, ProductReview, SupportInquiry, Coupon } from '../types';
+import { Product, Order, ShopSettings, ProductReview, SupportInquiry, Coupon, ProductVariant } from '../types';
 import { SupabaseService } from '../supabaseService';
 import { formatCurrency, generateInvoiceNumber } from '../utils';
 import { 
@@ -167,6 +167,8 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
 
   // Detail Modal for Product Reviews / Star rating
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [activeVariant, setActiveVariant] = useState<any | null>(null);
+  const [currentModalImage, setCurrentModalImage] = useState<string>('');
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
   const [reviews, setReviews] = useState<ProductReview[]>([]);
   const [newReviewName, setNewReviewName] = useState('');
@@ -258,6 +260,11 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   useEffect(() => {
     if (selectedProduct) {
       loadReviews(selectedProduct.id);
+      setActiveVariant(null);
+      setCurrentModalImage(selectedProduct.image_url || '');
+    } else {
+      setActiveVariant(null);
+      setCurrentModalImage('');
     }
   }, [selectedProduct]);
 
@@ -386,16 +393,23 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   const categories: string[] = ['General', ...Array.from(categoriesSet)] as string[];
 
   // Helper inside the store to compute price with discount applied
-  const getPromoPrice = (product: Product): number => {
+  const getPromoPrice = (product: Product, selectedVariant?: ProductVariant): number => {
+    const basePrice = (selectedVariant && selectedVariant.price !== undefined && selectedVariant.price !== null)
+      ? selectedVariant.price
+      : product.price;
+
     if (product.promotion_discount > 0) {
-      return product.price * (1 - product.promotion_discount / 100);
+      return basePrice * (1 - product.promotion_discount / 100);
     }
-    return product.price;
+    return basePrice;
   };
 
   // Helper to compute unit price taking tiered pricing scales and promotions into account
-  const getProductUnitPriceForQty = (product: Product, quantity: number): number => {
-    let basePrice = product.price;
+  const getProductUnitPriceForQty = (product: Product, quantity: number, selectedVariant?: ProductVariant): number => {
+    let basePrice = (selectedVariant && selectedVariant.price !== undefined && selectedVariant.price !== null)
+      ? selectedVariant.price
+      : product.price;
+
     if (product.quantity_prices && product.quantity_prices.length > 0) {
       // Sort scales descending to find matching threshold
       const sorted = [...product.quantity_prices].sort((a, b) => b.quantity - a.quantity);
@@ -549,36 +563,51 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   };
 
   // Cart operations
-  const addToCart = (product: Product) => {
-    if (product.stock <= 0) return;
+  const addToCart = (product: Product, selectedVariant?: ProductVariant) => {
+    const maxStock = (selectedVariant && selectedVariant.stock !== undefined && selectedVariant.stock !== null)
+      ? selectedVariant.stock
+      : product.stock;
+
+    if (maxStock <= 0) return;
+
     setCart(prev => {
-      const idx = prev.findIndex(item => item.product.id === product.id);
+      const idx = prev.findIndex(item => 
+        item.product.id === product.id && 
+        item.selectedVariant?.id === selectedVariant?.id
+      );
+
       if (idx >= 0) {
         const currentQty = prev[idx].quantity;
-        if (currentQty >= product.stock) {
+        if (currentQty >= maxStock) {
           return prev; // Stop exceeding stock limit
         }
         const updated = [...prev];
         updated[idx] = { ...prev[idx], quantity: currentQty + 1 };
         return updated;
       }
-      return [...prev, { product, quantity: 1 }];
+      return [...prev, { product, quantity: 1, selectedVariant }];
     });
     setIsCartOpen(true);
   };
 
-  const updateCartQty = (prodId: string, delta: number) => {
+  const updateCartQty = (prodId: string, delta: number, variantId?: string) => {
     setCart(prev => {
-      const idx = prev.findIndex(item => item.product.id === prodId);
+      const idx = prev.findIndex(item => 
+        item.product.id === prodId && 
+        item.selectedVariant?.id === variantId
+      );
       if (idx === -1) return prev;
       const target = prev[idx];
       const newQty = target.quantity + delta;
 
       if (newQty <= 0) {
-        return prev.filter(item => item.product.id !== prodId);
+        return prev.filter(item => !(item.product.id === prodId && item.selectedVariant?.id === variantId));
       }
 
-      const availableStock = target.product.stock;
+      const availableStock = (target.selectedVariant && target.selectedVariant.stock !== undefined && target.selectedVariant.stock !== null)
+        ? target.selectedVariant.stock
+        : target.product.stock;
+
       if (newQty > availableStock) {
         return prev; // Exceeded stock limit, return unchanged
       }
@@ -590,7 +619,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   };
 
   const cartTotal = cart.reduce((acc, item) => {
-    const finalPrice = getProductUnitPriceForQty(item.product, item.quantity);
+    const finalPrice = getProductUnitPriceForQty(item.product, item.quantity, item.selectedVariant);
     return acc + finalPrice * item.quantity;
   }, 0);
 
@@ -613,9 +642,9 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
     try {
       const formattedItems = cart.map(item => ({
         product_id: item.product.id,
-        product_name: item.product.name,
+        product_name: item.selectedVariant ? `${item.product.name} (${item.selectedVariant.name})` : item.product.name,
         quantity: item.quantity,
-        price_sold: getProductUnitPriceForQty(item.product, item.quantity),
+        price_sold: getProductUnitPriceForQty(item.product, item.quantity, item.selectedVariant),
         currency: item.product.currency || 'CUP'
       }));
 
@@ -1334,43 +1363,53 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
                 </div>
               ) : (
                 cart.map(item => {
-                  const finalPrice = getProductUnitPriceForQty(item.product, item.quantity);
+                  const finalPrice = getProductUnitPriceForQty(item.product, item.quantity, item.selectedVariant);
                   const currencySymbol = item.product.currency || 'CUP';
+                  const availableStock = (item.selectedVariant && item.selectedVariant.stock !== undefined && item.selectedVariant.stock !== null)
+                    ? item.selectedVariant.stock
+                    : item.product.stock;
                   return (
                     <div 
-                      key={item.product.id}
+                      key={`${item.product.id}-${item.selectedVariant?.id || 'base'}`}
                       className="flex items-center gap-3.5 p-3.5 bg-slate-50/70 border border-slate-100 rounded-xl"
                     >
                       <img 
-                        src={item.product.image_url} 
+                        src={item.selectedVariant?.image_url || item.product.image_url} 
                         alt={item.product.name}
                         referrerPolicy="no-referrer"
                         className="w-12 h-12 object-cover rounded-lg shrink-0 border border-gray-200"
                       />
                       <div className="flex-1 min-w-0">
-                        <h4 className="font-bold text-slate-800 text-xs truncate">{item.product.name}</h4>
+                        <h4 className="font-bold text-slate-800 text-xs truncate">
+                          {item.product.name}
+                          {item.selectedVariant && (
+                            <span className="block text-[10px] text-teal-600 font-extrabold mt-0.5">
+                              Variación: {item.selectedVariant.name}
+                            </span>
+                          )}
+                        </h4>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <span className="text-[10px] text-teal-600 font-bold">{formatCurrency(finalPrice, currencySymbol)}</span>
                           {item.product.promotion_discount > 0 && (
                             <span className="text-[9px] text-slate-400 line-through">
-                              {formatCurrency(item.product.price, currencySymbol)}
+                              {formatCurrency(item.selectedVariant?.price || item.product.price, currencySymbol)}
                             </span>
                           )}
                         </div>
-                        <p className="text-[10px] text-slate-400 mt-1">Disponibles en tienda: {item.product.stock}</p>
+                        <p className="text-[10px] text-slate-400 mt-1">Disponibles en tienda: {availableStock}</p>
                       </div>
 
                       {/* Quantity buttons */}
                       <div className="flex items-center border border-gray-200 bg-white rounded-lg overflow-hidden shrink-0">
                         <button 
-                          onClick={() => updateCartQty(item.product.id, -1)}
+                          onClick={() => updateCartQty(item.product.id, -1, item.selectedVariant?.id)}
                           className="px-2 py-1 text-slate-500 hover:bg-slate-50 text-xs font-semibold cursor-pointer"
                         >
                           -
                         </button>
                         <span className="px-2.5 text-xs text-slate-800 font-extrabold">{item.quantity}</span>
                         <button 
-                          onClick={() => updateCartQty(item.product.id, 1)}
+                          onClick={() => updateCartQty(item.product.id, 1, item.selectedVariant?.id)}
                           className="px-2 py-1 text-slate-500 hover:bg-slate-50 text-xs font-semibold cursor-pointer"
                         >
                           +
@@ -1994,17 +2033,75 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
             {/* Top row split layout containing image and reviews */}
             <div className="flex flex-col md:flex-row flex-1 overflow-y-auto">
               {/* Product Image Panel */}
-              <div className="w-full md:w-1/2 bg-slate-50 relative flex items-center justify-center border-r border-gray-100 min-h-[220px] cursor-zoom-in">
-                <img 
-                  src={selectedProduct.image_url || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=600'} 
-                  alt={selectedProduct.name}
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover max-h-[250px] md:max-h-full"
-                  onClick={() => setExpandedImage(selectedProduct.image_url || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=600')}
-                />
-                <span className="absolute top-3 left-3 text-[9px] font-bold bg-slate-900 text-white uppercase px-2 py-0.5 rounded shadow-sm">
-                  {selectedProduct.category}
-                </span>
+              <div className="w-full md:w-1/2 bg-slate-50 relative flex flex-col items-center justify-between border-r border-gray-100 min-h-[250px]">
+                <div className="w-full flex-1 flex items-center justify-center relative cursor-zoom-in overflow-hidden">
+                  <img 
+                    src={currentModalImage || selectedProduct.image_url || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=600'} 
+                    alt={selectedProduct.name}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover max-h-[250px] md:max-h-[350px] transition-all duration-300"
+                    onClick={() => setExpandedImage(currentModalImage || selectedProduct.image_url || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=600')}
+                  />
+                  <span className="absolute top-3 left-3 text-[9px] font-bold bg-slate-900 text-white uppercase px-2 py-0.5 rounded shadow-sm">
+                    {selectedProduct.category}
+                  </span>
+                </div>
+
+                {/* Galería de imágenes secundarias (Miniaturas) */}
+                {((selectedProduct.gallery_images && selectedProduct.gallery_images.length > 0) || (selectedProduct.variants && selectedProduct.variants.length > 0)) && (
+                  <div className="w-full p-3 bg-white border-t border-gray-100 flex items-center gap-2 overflow-x-auto">
+                    {/* Imagen principal como miniatura */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentModalImage(selectedProduct.image_url || '');
+                        setActiveVariant(null);
+                      }}
+                      className={`w-10 h-10 rounded-lg border-2 overflow-hidden shrink-0 transition-all ${
+                        (!activeVariant && currentModalImage === selectedProduct.image_url) ? 'border-teal-600 scale-105' : 'border-gray-200'
+                      }`}
+                    >
+                      <img src={selectedProduct.image_url} alt="Principal" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    </button>
+
+                    {/* Imágenes de la Galería */}
+                    {selectedProduct.gallery_images && selectedProduct.gallery_images.map((img, idx) => img && (
+                      <button
+                        key={`gal-${idx}`}
+                        type="button"
+                        onClick={() => {
+                          setCurrentModalImage(img);
+                        }}
+                        className={`w-10 h-10 rounded-lg border-2 overflow-hidden shrink-0 transition-all ${
+                          (currentModalImage === img) ? 'border-teal-600 scale-105' : 'border-gray-200'
+                        }`}
+                      >
+                        <img src={img} alt={`Galería ${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      </button>
+                    ))}
+
+                    {/* Imágenes de Variantes */}
+                    {selectedProduct.variants && selectedProduct.variants.map((variant: any, idx: number) => variant.image_url && (
+                      <button
+                        key={`var-img-${idx}`}
+                        type="button"
+                        onClick={() => {
+                          setCurrentModalImage(variant.image_url);
+                          setActiveVariant(variant);
+                        }}
+                        className={`w-10 h-10 rounded-lg border-2 overflow-hidden shrink-0 transition-all relative ${
+                          (activeVariant?.id === variant.id) ? 'border-teal-600 scale-105' : 'border-gray-200'
+                        }`}
+                        title={variant.name}
+                      >
+                        <img src={variant.image_url} alt={variant.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        <span className="absolute bottom-0 inset-x-0 bg-slate-900/60 text-white text-[7px] text-center truncate px-0.5 font-bold">
+                          {variant.name}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Content & Review Form Panel */}
@@ -2013,7 +2110,14 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
                 {/* Header Info */}
                 <div>
                   <div className="flex items-start justify-between">
-                    <h3 className="font-extrabold text-slate-900 text-base leading-tight">{selectedProduct.name}</h3>
+                    <h3 className="font-extrabold text-slate-900 text-base leading-tight">
+                      {selectedProduct.name}
+                      {activeVariant && (
+                        <span className="block text-xs font-bold text-teal-600 mt-1">
+                          Variante: {activeVariant.name}
+                        </span>
+                      )}
+                    </h3>
                     <button 
                       onClick={() => setSelectedProduct(null)}
                       className="p-1 text-slate-400 hover:text-slate-800 rounded-lg cursor-pointer shrink-0 ml-2"
@@ -2026,15 +2130,72 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
 
                   <div className="mt-3 flex items-baseline gap-2">
                     <span className="text-base font-extrabold text-slate-950">
-                      {formatCurrency(getPromoPrice(selectedProduct), selectedProduct.currency || 'CUP')}
+                      {formatCurrency(getPromoPrice(selectedProduct, activeVariant), selectedProduct.currency || 'CUP')}
                     </span>
                     {selectedProduct.promotion_discount > 0 && (
                       <span className="text-[10px] text-slate-400 line-through">
-                        {formatCurrency(selectedProduct.price, selectedProduct.currency || 'CUP')}
+                        {formatCurrency(activeVariant?.price !== undefined ? activeVariant.price : selectedProduct.price, selectedProduct.currency || 'CUP')}
                       </span>
                     )}
-                    <span className="text-[10px] text-slate-400 font-medium ml-auto">Stock: {selectedProduct.stock}</span>
+                    <span className="text-[10px] text-slate-400 font-medium ml-auto">
+                      Stock: {activeVariant?.stock !== undefined && activeVariant.stock !== null ? activeVariant.stock : selectedProduct.stock}
+                    </span>
                   </div>
+
+                  {/* Selector de Variaciones */}
+                  {selectedProduct.variants && selectedProduct.variants.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                      <span className="block text-[10px] font-black text-slate-750 uppercase tracking-widest">
+                        🎨 Variedades Disponibles:
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        {/* Botón de producto base / original */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveVariant(null);
+                            setCurrentModalImage(selectedProduct.image_url || '');
+                          }}
+                          className={`px-3 py-2 text-[10.5px] font-bold rounded-xl transition-all cursor-pointer border flex items-center gap-1.5 active:scale-95 ${
+                            !activeVariant 
+                              ? 'bg-teal-600 border-teal-600 text-white shadow-xs' 
+                              : 'bg-white border-slate-200 text-slate-700 hover:border-slate-350'
+                          }`}
+                        >
+                          <span>Original</span>
+                        </button>
+
+                        {/* Botones de las variantes */}
+                        {selectedProduct.variants.map((variant: any) => (
+                          <button
+                            key={variant.id}
+                            type="button"
+                            onClick={() => {
+                              setActiveVariant(variant);
+                              if (variant.image_url) {
+                                setCurrentModalImage(variant.image_url);
+                              }
+                            }}
+                            className={`px-3 py-2 text-[10.5px] font-bold rounded-xl transition-all cursor-pointer border flex items-center gap-1.5 active:scale-95 ${
+                              activeVariant?.id === variant.id 
+                                ? 'bg-teal-600 border-teal-600 text-white shadow-xs' 
+                                : 'bg-white border-slate-200 text-slate-700 hover:border-slate-350'
+                            }`}
+                          >
+                            {variant.image_url && (
+                              <img src={variant.image_url} alt={variant.name} className="w-4 h-4 rounded-full object-cover" referrerPolicy="no-referrer" />
+                            )}
+                            <span>{variant.name}</span>
+                            {variant.price !== undefined && variant.price !== null && variant.price !== selectedProduct.price && (
+                              <span className="text-[9px] opacity-80 font-mono">
+                                ({formatCurrency(variant.price, selectedProduct.currency || 'CUP')})
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {selectedProduct.quantity_prices && selectedProduct.quantity_prices.length > 0 && (
                     <div className="mt-4 bg-slate-50 border border-slate-200/50 p-3 rounded-xl space-y-2">
@@ -2187,7 +2348,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
                     <button
                       type="button"
                       onClick={() => {
-                        if (selectedProduct) addToCart(selectedProduct);
+                        if (selectedProduct) addToCart(selectedProduct, activeVariant || undefined);
                       }}
                       className="text-[10px] font-bold text-teal-600 hover:text-teal-700 hover:underline flex items-center gap-1 cursor-pointer"
                     >

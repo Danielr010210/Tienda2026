@@ -92,6 +92,9 @@ create table if not exists workers (
 alter table workers add column if not exists must_reset_password boolean not null default true;
 alter table workers add column if not exists permissions text[] default '{}'::text[];
 alter table products add column if not exists currency varchar default 'CUP';
+alter table products add column if not exists variants jsonb default '[]'::jsonb;
+alter table products add column if not exists gallery_images text[] default '{}'::text[];
+alter table products add column if not exists quantity_prices jsonb default '[]'::jsonb;
 alter table product_categories add column if not exists image_path varchar;
 
 -- Compatibilidad para shop_settings existentes (nuevas columnas)
@@ -565,6 +568,9 @@ alter table workers add column if not exists permissions text[] default '{}'::te
 
 -- Compatibilidad de moneda en productos (products)
 alter table products add column if not exists currency varchar default 'CUP';
+alter table products add column if not exists variants jsonb default '[]'::jsonb;
+alter table products add column if not exists gallery_images text[] default '{}'::text[];
+alter table products add column if not exists quantity_prices jsonb default '[]'::jsonb;
 
 -- Compatibilidad de imagen en categorías (product_categories)
 alter table product_categories add column if not exists image_path varchar;
