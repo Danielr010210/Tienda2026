@@ -134,6 +134,7 @@ const DEFAULT_SETTINGS: ShopSettings = {
   address: 'Gran Vía 45, La Habana, Cuba',
   currency: 'CUP',
   about_visible: true,
+  store_url: '',
   about_text: 'Bienvenido a Boutique Minimal. Somos una tienda premium enfocada en brindar la mejor calidad de servicio, envíos inmediatos y atención personalizada a nuestra distinguida clientela.',
   smart_search_text: 'Búsqueda Inteligente Supabase Live',
   shop_logo_url: '',
@@ -247,7 +248,8 @@ export class SupabaseService {
     const metaEnv = (import.meta as any).env;
     const url = (metaEnv?.VITE_SUPABASE_URL as string) || localStorage.getItem('supabase_url') || 'https://yczvjaciqhaxymsbeyty.supabase.co';
     const key = (metaEnv?.VITE_SUPABASE_ANON_KEY as string) || localStorage.getItem('supabase_key') || 'sb_publishable_fYQjTggl4-eoDyc-s3jPdQ_MG5q4UlW';
-    const mode = localStorage.getItem('supabase_mode') || 'real';
+    const hasCustomCreds = !!(metaEnv?.VITE_SUPABASE_URL && metaEnv?.VITE_SUPABASE_ANON_KEY) || !!localStorage.getItem('supabase_url');
+    const mode = localStorage.getItem('supabase_mode') || (hasCustomCreds ? 'real' : 'mock');
     return { url, key, mode };
   }
 
@@ -263,19 +265,24 @@ export class SupabaseService {
   }
 
   static async checkConnection(): Promise<boolean> {
-    if (!this.isReal()) return false;
+    if (!this.isReal()) return true;
     const client = this.getClient();
     if (!client) return false;
     try {
       // Perform a lightweight query on shop_settings to prove real communication is fully online
       const { data, error } = await client.from('shop_settings').select('id').limit(1);
       if (error) {
-        console.error('Supabase connection health check error:', error);
+        console.warn('Supabase database status check warning:', error);
+        if (error.code === 'PGRST114' || error.message?.includes('relation') || error.message?.includes('does not exist')) {
+          console.warn('⚠️ LA TABLA "shop_settings" NO EXISTE EN SUPABASE. Por favor, abre el Panel de Control, ve a la pestaña "Supabase Setup" y copia y pega las consultas SQL en el editor de Supabase.');
+        } else {
+          console.warn(`⚠️ Error de conexión a Supabase [Código ${error.code || 'sin código'}]: ${error.message || 'Sin mensaje'}`);
+        }
         return false;
       }
       return true;
     } catch (e) {
-      console.error('Supabase connection health exception:', e);
+      console.warn('Supabase database status exception:', e);
       return false;
     }
   }
@@ -336,14 +343,17 @@ export class SupabaseService {
       const cached = this.getCachedData<Product[]>('products');
       if (cached) return cached;
     }
-    if (!this.isReal()) {
-      const local = getLocalStorageItem('shop_products', DEFAULT_PRODUCTS);
+    const realMode = this.isReal();
+    const fallbackProducts: Product[] = realMode ? [] : DEFAULT_PRODUCTS;
+
+    if (!realMode) {
+      const local = getLocalStorageItem('shop_products', fallbackProducts);
       this.setCachedData('products', local);
       return local;
     }
     const client = this.getClient();
     if (!client) {
-      const local = getLocalStorageItem('shop_products', DEFAULT_PRODUCTS);
+      const local = getLocalStorageItem('shop_products', fallbackProducts);
       this.setCachedData('products', local);
       return local;
     }
@@ -354,14 +364,45 @@ export class SupabaseService {
         .order('name');
       if (error) {
         console.warn('Supabase products fetch failed, using local local storage:', error);
-        const local = getLocalStorageItem('shop_products', DEFAULT_PRODUCTS);
+        const local = getLocalStorageItem('shop_products', fallbackProducts);
         this.setCachedData('products', local);
         return local;
       }
       
-      const localProducts = getLocalStorageItem<Product[]>('shop_products', DEFAULT_PRODUCTS);
-      const merged = (data || []).map((dbProd: any) => {
-        const localProd = localProducts.find(lp => lp.id === dbProd.id || lp.name === dbProd.name);
+      let fetchedData = data || [];
+      const localProducts = getLocalStorageItem<Product[]>('shop_products', fallbackProducts);
+      const safeLocalProducts = Array.isArray(localProducts) ? localProducts : fallbackProducts;
+
+      // DO NOT auto-seed mock/test products in real mode
+      if (fetchedData.length === 0 && safeLocalProducts.length > 0 && !realMode) {
+        try {
+          const insertData = safeLocalProducts.map(p => ({
+            id: p.id,
+            name: p.name,
+            description: p.description || '',
+            price: p.price,
+            category: p.category,
+            image_url: p.image_url || '',
+            stock: p.stock ?? 10,
+            is_visible: p.is_visible !== false,
+            promotion_discount: p.promotion_discount || 0,
+            currency: p.currency || 'CUP',
+            quantity_prices: p.quantity_prices || [],
+            variants: p.variants || [],
+            gallery_images: p.gallery_images || []
+          }));
+          await client.from('products').insert(insertData);
+          const { data: refetched } = await client.from('products').select('*').order('name');
+          if (refetched && refetched.length > 0) {
+            fetchedData = refetched;
+          }
+        } catch (e) {
+          console.error('Error auto-seeding products into Supabase:', e);
+        }
+      }
+
+      const merged = fetchedData.map((dbProd: any) => {
+        const localProd = safeLocalProducts.find(lp => lp.id === dbProd.id || lp.name === dbProd.name);
         return {
           ...dbProd,
           currency: dbProd.currency || localProd?.currency || 'CUP',
@@ -374,7 +415,7 @@ export class SupabaseService {
       return merged;
     } catch (e) {
       console.warn('Supabase products fetch exception, using local:', e);
-      const local = getLocalStorageItem('shop_products', DEFAULT_PRODUCTS);
+      const local = getLocalStorageItem('shop_products', fallbackProducts);
       this.setCachedData('products', local);
       return local;
     }
@@ -1249,11 +1290,10 @@ export class SupabaseService {
       if (cached) return cached;
     }
     const defaultCats: ProductCategory[] = [
-      { id: 'cat-1', name: 'Tecnología' },
-      { id: 'cat-2', name: 'Audio' },
-      { id: 'cat-3', name: 'Moda' },
-      { id: 'cat-4', name: 'Hogar' },
-      { id: 'cat-5', name: 'Deportes' }
+      { id: 'cat-1', name: 'Comida' },
+      { id: 'cat-2', name: 'Equipos Electrónicos' },
+      { id: 'cat-3', name: 'Aseo Personal' },
+      { id: 'cat-4', name: 'Perfumería' }
     ];
     const local = getLocalStorageItem<ProductCategory[]>('shop_categories', defaultCats);
     if (!this.isReal()) {
@@ -1271,7 +1311,23 @@ export class SupabaseService {
         this.setCachedData('product_categories', local);
         return local;
       }
-      const result = data || [];
+      let result = data || [];
+      if (result.length === 0) {
+        try {
+          const insertData = defaultCats.map(cat => ({
+            id: cat.id,
+            name: cat.name,
+            image_path: cat.image_path || ''
+          }));
+          await client.from('product_categories').insert(insertData);
+          const { data: refetched } = await client.from('product_categories').select('*').order('name');
+          if (refetched && refetched.length > 0) {
+            result = refetched;
+          }
+        } catch (e) {
+          console.error('Error auto-seeding product categories:', e);
+        }
+      }
       this.setCachedData('product_categories', result);
       return result;
     } catch {

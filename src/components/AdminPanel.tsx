@@ -13,7 +13,7 @@ import {
   Users, ShoppingBag, ClipboardList, Settings, ShieldAlert, 
   TrendingUp, ArrowLeft, LogOut, Check, X, ShieldCheck, 
   Trash2, Plus, Edit2, AlertTriangle, Eye, EyeOff, LayoutDashboard, Clock, DollarSign, Database, MessageSquare, Tag,
-  Store, Send, RefreshCw, Download, Copy
+  Store, Send, RefreshCw, Download, Copy, ChevronLeft, ChevronRight
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -104,6 +104,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   const [quickWhatsAppNumber, setQuickWhatsAppNumber] = useState('');
   const [quickBusinessHours, setQuickBusinessHours] = useState('');
   const [quickShopDescription, setQuickShopDescription] = useState('');
+  const [quickStoreUrl, setQuickStoreUrl] = useState('');
 
   // Telegram credentials states ('telegram_bot' tab)
   const [tgBotToken, setTgBotToken] = useState('');
@@ -118,6 +119,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       setQuickWhatsAppNumber(settings.whatsapp_number || '');
       setQuickBusinessHours(settings.business_hours || '');
       setQuickShopDescription(settings.shop_description || '');
+      setQuickStoreUrl(settings.store_url || '');
       setTgBotToken(settings.telegram_bot_token || '');
       setTgChatId(settings.telegram_chat_id || '');
       setTgEnabled(!!settings.telegram_enabled);
@@ -167,12 +169,65 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   // Active Tab
   const [activeTab, setActiveTab] = useState<string>('dashboard');
 
+  const inventoryCategoryContainerRef = useRef<HTMLDivElement>(null);
+  const [canScrollInventoryLeft, setCanScrollInventoryLeft] = useState(false);
+  const [canScrollInventoryRight, setCanScrollInventoryRight] = useState(false);
+
+  const scrollInventoryCategories = (direction: 'left' | 'right') => {
+    if (inventoryCategoryContainerRef.current) {
+      const scrollAmount = 200;
+      inventoryCategoryContainerRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  useEffect(() => {
+    const el = inventoryCategoryContainerRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      setCanScrollInventoryLeft(el.scrollLeft > 2);
+      setCanScrollInventoryRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 2);
+    };
+
+    handleScroll();
+    el.addEventListener('scroll', handleScroll);
+    window.addEventListener('resize', handleScroll);
+
+    const timer = setTimeout(handleScroll, 500);
+
+    return () => {
+      el.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleScroll);
+      clearTimeout(timer);
+    };
+  }, [categories, activeTab]);
+
   // Load state for independent tabs to save bandwidth
   const [loadedTabs, setLoadedTabs] = useState<Record<string, boolean>>({});
   const [isLoadingTab, setIsLoadingTab] = useState(false);
 
   // Plan usage modal state
   const [isPlanUsageModalOpen, setIsPlanUsageModalOpen] = useState(false);
+
+  const combineCategoriesAndProducts = (catsList: ProductCategory[], productsList: Product[]): ProductCategory[] => {
+    const list = [...catsList];
+    productsList.forEach(p => {
+      const catName = p.category ? p.category.trim() : '';
+      if (catName) {
+        const exists = list.some(c => c.name.toLowerCase().trim() === catName.toLowerCase());
+        if (!exists) {
+          list.push({
+            id: `auto-${catName.replace(/\s+/g, '-').toLowerCase()}`,
+            name: catName
+          });
+        }
+      }
+    });
+    return list;
+  };
 
   // Load data for active tab on demand
   const loadDataForTab = async (tabName: string, forceRefresh = false) => {
@@ -194,7 +249,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
           setVisitorHistory(vis);
           setAlerts(alrts);
           setSettings(sets);
-          setCategories(cats);
+          setCategories(combineCategoriesAndProducts(cats, prodList));
           setSupportInquiries(sups);
           break;
         }
@@ -219,7 +274,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
             SupabaseService.getCategories(forceRefresh)
           ]);
           setProducts(prodList);
-          setCategories(cats);
+          setCategories(combineCategoriesAndProducts(cats, prodList));
           break;
         }
         case 'trabajadores': {
@@ -254,7 +309,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
             SupabaseService.getSettings(forceRefresh)
           ]);
           setProducts(prodList);
-          setCategories(cats);
+          setCategories(combineCategoriesAndProducts(cats, prodList));
           setSettings(sets);
           break;
         }
@@ -284,7 +339,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
           setAuditLogs(audits);
           setAlerts(alrts);
           setSettings(sets);
-          setCategories(cats);
+          setCategories(combineCategoriesAndProducts(cats, prodList));
           setSupportInquiries(sups);
           setVisitorHistory(vis);
           setCoupons(cps);
@@ -430,7 +485,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
           <button
             type="button"
             disabled={isLoadingTab}
-            onClick={() => loadDataForTab(tabName)}
+            onClick={() => loadDataForTab(tabName, true)}
             className="w-full sm:w-auto bg-teal-500 hover:bg-teal-600 text-slate-950 font-black text-xs py-3.5 px-8 rounded-xl transition-all shadow-lg shadow-teal-500/20 hover:scale-[1.02] active:scale-[0.98] inline-flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoadingTab ? (
@@ -950,6 +1005,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     name: '', price: 0, category: '', image_url: '', stock: 10, is_visible: true, promotion_discount: 0, description: '', currency: 'CUP'
   });
   const [imgMode, setImgMode] = useState<'url' | 'file'>('url');
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const [editingWorker, setEditingWorker] = useState<Worker | null>(null);
   const [isWorkerModalOpen, setIsWorkerModalOpen] = useState(false);
@@ -1771,6 +1827,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
         whatsapp_number: quickWhatsAppNumber,
         business_hours: quickBusinessHours,
         shop_description: quickShopDescription,
+        store_url: quickStoreUrl,
       };
       
       await SupabaseService.saveSettings(updatedSettings, currentUser.name);
@@ -1786,6 +1843,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
           whatsapp_number: quickWhatsAppNumber,
           business_hours: quickBusinessHours,
           shop_description: quickShopDescription,
+          store_url: quickStoreUrl,
         });
       }
       
@@ -3116,8 +3174,11 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                     <button
                       onClick={() => {
                         setEditingProduct(null);
+                        const initialCategory = selectedInventoryCategory !== 'all' 
+                          ? selectedInventoryCategory 
+                          : (categories[0]?.name || 'Tecnología');
                         setProductForm({
-                          name: '', price: 0, category: categories[0]?.name || 'Tecnología', image_url: '', stock: 10, is_visible: true, promotion_discount: 0, description: '', currency: settings?.currency || 'CUP', variants: [], gallery_images: []
+                          name: '', price: 0, category: initialCategory, image_url: '', stock: 10, is_visible: true, promotion_discount: 0, description: '', currency: settings?.currency || 'CUP', variants: [], gallery_images: []
                         });
                         setIsProductModalOpen(true);
                       }}
@@ -3131,47 +3192,74 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
 
                 {/* Categorías como Pestañas una al lado de la otra */}
                 {categories.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2 mb-6 border-b border-gray-150 pb-5">
-                    <button
-                      onClick={() => setSelectedInventoryCategory('all')}
-                      type="button"
-                      className={`px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer border flex items-center gap-1.5 active:scale-95 ${
-                        selectedInventoryCategory === 'all'
-                          ? 'bg-[#0f172a] text-white border-[#0f172a] shadow-sm'
-                          : 'bg-white text-slate-600 border-gray-200 hover:bg-slate-50 hover:text-slate-800'
-                      }`}
+                  <div className="flex items-center gap-2 relative mb-6 border-b border-gray-150 pb-5">
+                    {canScrollInventoryLeft && (
+                      <button
+                        type="button"
+                        onClick={() => scrollInventoryCategories('left')}
+                        className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 p-2 rounded-xl transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer flex items-center justify-center animate-fade-in"
+                        title="Desplazar a la izquierda"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                    )}
+
+                    <div 
+                      ref={inventoryCategoryContainerRef}
+                      className="flex-1 flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none scroll-smooth"
                     >
-                      <span>📁 Mostrar Todo</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono ${
-                        selectedInventoryCategory === 'all' ? 'bg-white/20 text-white font-bold' : 'bg-slate-100 text-slate-500 font-bold'
-                      }`}>
-                        {products.length}
-                      </span>
-                    </button>
-                    {categories.map(cat => {
-                      const count = products.filter(p => p.category === cat.name).length;
-                      return (
-                        <button
-                          key={cat.id}
-                          onClick={() => setSelectedInventoryCategory(cat.name)}
-                          type="button"
-                          className={`px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer border flex items-center gap-1.5 active:scale-95 ${
-                            selectedInventoryCategory === cat.name
-                              ? 'bg-[#0f172a] text-white border-[#0f172a] shadow-sm'
-                              : 'bg-white text-slate-600 border-gray-200 hover:bg-slate-50 hover:text-slate-800'
-                          }`}
-                        >
-                          <span>{cat.name}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono ${
-                            selectedInventoryCategory === cat.name
-                              ? 'bg-white/20 text-white font-bold'
-                              : 'bg-slate-100 text-slate-500 font-bold'
-                          }`}>
-                            {count}
-                          </span>
-                        </button>
-                      );
-                    })}
+                      <button
+                        onClick={() => setSelectedInventoryCategory('all')}
+                        type="button"
+                        className={`px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer border flex items-center gap-1.5 active:scale-95 shrink-0 ${
+                          selectedInventoryCategory === 'all'
+                            ? 'bg-[#0f172a] text-white border-[#0f172a] shadow-sm'
+                            : 'bg-white text-slate-600 border-gray-200 hover:bg-slate-50 hover:text-slate-800'
+                        }`}
+                      >
+                        <span>📁 Mostrar Todo</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono ${
+                          selectedInventoryCategory === 'all' ? 'bg-white/20 text-white font-bold' : 'bg-slate-100 text-slate-500 font-bold'
+                        }`}>
+                          {products.length}
+                        </span>
+                      </button>
+                      {categories.map(cat => {
+                        const count = products.filter(p => p.category === cat.name).length;
+                        return (
+                          <button
+                            key={cat.id}
+                            onClick={() => setSelectedInventoryCategory(cat.name)}
+                            type="button"
+                            className={`px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer border flex items-center gap-1.5 active:scale-95 shrink-0 ${
+                              selectedInventoryCategory === cat.name
+                                ? 'bg-[#0f172a] text-white border-[#0f172a] shadow-sm'
+                                : 'bg-white text-slate-600 border-gray-200 hover:bg-slate-50 hover:text-slate-800'
+                            }`}
+                          >
+                            <span>{cat.name}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono ${
+                              selectedInventoryCategory === cat.name
+                                ? 'bg-white/20 text-white font-bold'
+                                : 'bg-slate-100 text-slate-500 font-bold'
+                            }`}>
+                              {count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {canScrollInventoryRight && (
+                      <button
+                        type="button"
+                        onClick={() => scrollInventoryCategories('right')}
+                        className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 p-2 rounded-xl transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer flex items-center justify-center animate-fade-in"
+                        title="Desplazar a la derecha"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -3198,20 +3286,20 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                                 {categoryProducts.length} {categoryProducts.length === 1 ? 'producto' : 'productos'}
                               </span>
                             </div>
-                            {categoryProducts.length === 0 && (
-                              <button
-                                onClick={() => {
-                                  setEditingProduct(null);
-                                  setProductForm({
-                                    name: '', price: 0, category: cat.name, image_url: '', stock: 10, is_visible: true, promotion_discount: 0, description: '', currency: settings?.currency || 'CUP', variants: [], gallery_images: []
-                                  });
-                                  setIsProductModalOpen(true);
-                                }}
-                                className="text-[10px] font-bold text-teal-600 hover:text-teal-700 bg-teal-50 hover:bg-teal-100 px-2.5 py-1 rounded transition-all cursor-pointer"
-                              >
-                                ➕ Añadir producto aquí
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingProduct(null);
+                                setProductForm({
+                                  name: '', price: 0, category: cat.name, image_url: '', stock: 10, is_visible: true, promotion_discount: 0, description: '', currency: settings?.currency || 'CUP', variants: [], gallery_images: []
+                                });
+                                setIsProductModalOpen(true);
+                              }}
+                              className="text-[10px] font-bold text-teal-600 hover:text-teal-700 bg-teal-50 hover:bg-teal-100 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 border border-teal-200/50 hover:scale-102 active:scale-95"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Crear Producto</span>
+                            </button>
                           </div>
 
                           {categoryProducts.length === 0 ? (
@@ -3242,12 +3330,22 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                                     return (
                                       <tr key={prod.id} className="hover:bg-slate-50/50 text-slate-700">
                                         <td className="px-5 py-3">
-                                          <img 
-                                            src={prod.image_url} 
-                                            alt="" 
-                                            referrerPolicy="no-referrer"
-                                            className="w-10 h-10 object-cover rounded-lg border border-gray-150"
-                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => setPreviewImage(prod.image_url)}
+                                            className="w-10 h-10 rounded-lg border border-gray-150 overflow-hidden hover:scale-105 active:scale-95 transition-all cursor-pointer block relative group shadow-sm bg-slate-50"
+                                            title="Ver imagen en grande"
+                                          >
+                                            <img 
+                                              src={prod.image_url} 
+                                              alt={prod.name} 
+                                              referrerPolicy="no-referrer"
+                                              className="w-full h-full object-cover select-none"
+                                            />
+                                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                              <Eye className="w-4 h-4 text-white" />
+                                            </div>
+                                          </button>
                                         </td>
                                         <td className="px-5 py-2">
                                           <span className="font-bold text-slate-800 block text-xs">{prod.name}</span>
@@ -3370,12 +3468,22 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                                 return (
                                   <tr key={prod.id} className="hover:bg-slate-50/50">
                                     <td className="px-5 py-3">
-                                      <img 
-                                        src={prod.image_url} 
-                                        alt="" 
-                                        referrerPolicy="no-referrer"
-                                        className="w-10 h-10 object-cover rounded-lg border border-gray-150"
-                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => setPreviewImage(prod.image_url)}
+                                        className="w-10 h-10 rounded-lg border border-gray-150 overflow-hidden hover:scale-105 active:scale-95 transition-all cursor-pointer block relative group shadow-sm bg-slate-50"
+                                        title="Ver imagen en grande"
+                                      >
+                                        <img 
+                                          src={prod.image_url} 
+                                          alt={prod.name} 
+                                          referrerPolicy="no-referrer"
+                                          className="w-full h-full object-cover select-none"
+                                        />
+                                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                          <Eye className="w-4 h-4 text-white" />
+                                        </div>
+                                      </button>
                                     </td>
                                     <td className="px-5 py-3">
                                       <span className="font-bold text-slate-800 block text-xs">{prod.name}</span>
@@ -5029,6 +5137,20 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                           placeholder="Ej. Gran Vía 45, La Habana, Cuba"
                         />
                       </div>
+
+                      <div className="bg-teal-50/50 p-4 rounded-xl border border-teal-200/40 space-y-2.5">
+                        <label className="block text-[10px] font-bold text-teal-850 uppercase tracking-wider">🔗 Enlace Oficial / URL de la Tienda</label>
+                        <p className="text-[10px] text-teal-700 leading-normal">
+                          Configura la dirección web de tu negocio. Se utilizará para generar el código QR dinámico de acceso rápido y para la opción de compartir la tienda. Si lo dejas vacío, se usará automáticamente la URL actual del navegador.
+                        </p>
+                        <input
+                          type="url"
+                          value={quickStoreUrl}
+                          onChange={(e) => setQuickStoreUrl(e.target.value)}
+                          className="w-full text-xs p-2.5 bg-white border border-teal-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500 font-bold text-slate-800"
+                          placeholder="Ej. https://mi-boutique-premium.com"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -5429,16 +5551,16 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
           4. FORM MODAL PRODUCTS (Add / Edit)
           ========================================================= */}
       {isProductModalOpen && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col text-xs animate-scale-up">
-            <div className="p-5 bg-slate-900 text-white flex items-center justify-between">
+        <div className="fixed inset-0 z-[100] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl flex flex-col text-xs animate-scale-up my-auto max-h-[92vh] sm:max-h-[90vh] overflow-hidden">
+            <div className="p-4 sm:p-5 bg-slate-900 text-white flex items-center justify-between shrink-0">
               <h3 className="font-bold text-sm">{editingProduct ? 'Editar Producto del Registro' : 'Agregar Nuevo Producto'}</h3>
-              <button onClick={() => setIsProductModalOpen(false)} className="text-slate-300 hover:text-white cursor-pointer">
+              <button onClick={() => setIsProductModalOpen(false)} className="text-slate-300 hover:text-white cursor-pointer" title="Cerrar cartel">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveProduct} className="p-6 space-y-4">
+            <form onSubmit={handleSaveProduct} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1 scrollbar-thin">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-650 uppercase tracking-widest mb-1">Nombre Ítem <span className="text-red-500">*</span></label>
@@ -6566,6 +6688,34 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                 Cerrar Cartel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox para previsualizar imágenes en grande */}
+      {previewImage && (
+        <div 
+          className="fixed inset-0 z-[120] bg-black/95 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer animate-fade-in"
+          onClick={() => setPreviewImage(null)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh] flex flex-col items-center justify-center animate-scale-up" onClick={e => e.stopPropagation()}>
+            <button 
+              type="button"
+              onClick={() => setPreviewImage(null)}
+              className="absolute -top-12 right-0 text-white/85 hover:text-white bg-white/10 hover:bg-white/20 p-2.5 rounded-full transition-all cursor-pointer shadow-lg active:scale-95 flex items-center justify-center"
+              title="Cerrar vista previa"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <img 
+              src={previewImage} 
+              alt="Vista previa" 
+              className="max-w-full max-h-[80vh] object-contain rounded-xl shadow-2xl border border-white/10 select-none pointer-events-none" 
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                (e.target as any).src = 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=80&q=80';
+              }}
+            />
           </div>
         </div>
       )}

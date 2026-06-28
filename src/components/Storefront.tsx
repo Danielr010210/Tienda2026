@@ -10,7 +10,7 @@ import { formatCurrency, generateInvoiceNumber } from '../utils';
 import { 
   ShoppingBag, Search, Tag, AlertTriangle, CheckCircle, SlidersHorizontal, 
   Send, Wifi, WifiOff, RefreshCw, Smartphone, MapPin, Sparkles, X, ChevronRight, ChevronLeft, ArrowLeft, CornerDownRight,
-  Star, Info, Eye, HelpCircle, Database, Phone, Mail, Music, Zap, Package, Compass, Ship, Anchor
+  Star, Info, Eye, HelpCircle, Database, Phone, Mail, Music, Zap, Package, Compass, Ship, Anchor, QrCode, Share2, Copy, Download, Check, ExternalLink
 } from 'lucide-react';
 
 interface StorefrontProps {
@@ -40,6 +40,8 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   const [selectedCategory, setSelectedCategory] = useState<string>('General');
   const [searchQuery, setSearchQuery] = useState('');
   const categoryContainerRef = useRef<HTMLDivElement>(null);
+  const [canScrollCategoriesLeft, setCanScrollCategoriesLeft] = useState(false);
+  const [canScrollCategoriesRight, setCanScrollCategoriesRight] = useState(false);
 
   const scrollCategories = (direction: 'left' | 'right') => {
     if (categoryContainerRef.current) {
@@ -50,6 +52,28 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
       });
     }
   };
+
+  useEffect(() => {
+    const el = categoryContainerRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      setCanScrollCategoriesLeft(el.scrollLeft > 2);
+      setCanScrollCategoriesRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 2);
+    };
+
+    handleScroll();
+    el.addEventListener('scroll', handleScroll);
+    window.addEventListener('resize', handleScroll);
+
+    const timer = setTimeout(handleScroll, 500);
+
+    return () => {
+      el.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleScroll);
+      clearTimeout(timer);
+    };
+  }, [dbCategories, products]);
 
   // Cart States
   const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
@@ -91,6 +115,12 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
 
   // Business Card Popup state
   const [isBusinessCardOpen, setIsBusinessCardOpen] = useState(false);
+
+  // Floating Expandable Menu and QR code States
+  const [isFabMenuOpen, setIsFabMenuOpen] = useState(false);
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedQr, setCopiedQr] = useState(false);
 
   // Dynamic Google Maps URL constructor supporting Address, Coords, or Custom Embed iframe
   const getGoogleMapsUrl = (): string => {
@@ -176,6 +206,42 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   const [newReviewComment, setNewReviewComment] = useState('');
   const [reviewError, setReviewError] = useState('');
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+
+  const galleryContainerRef = useRef<HTMLDivElement>(null);
+  const [canScrollGalleryLeft, setCanScrollGalleryLeft] = useState(false);
+  const [canScrollGalleryRight, setCanScrollGalleryRight] = useState(false);
+
+  const scrollGallery = (direction: 'left' | 'right') => {
+    if (galleryContainerRef.current) {
+      const scrollAmount = 150;
+      galleryContainerRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  useEffect(() => {
+    const el = galleryContainerRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      setCanScrollGalleryLeft(el.scrollLeft > 2);
+      setCanScrollGalleryRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 2);
+    };
+
+    handleScroll();
+    el.addEventListener('scroll', handleScroll);
+    window.addEventListener('resize', handleScroll);
+
+    const timer = setTimeout(handleScroll, 500);
+
+    return () => {
+      el.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleScroll);
+      clearTimeout(timer);
+    };
+  }, [selectedProduct, activeVariant]);
 
   // Persistent Client Support Sheets / Complaint
   const [isSupportOpen, setIsSupportOpen] = useState(false);
@@ -366,7 +432,9 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   // Load categories directly from database, combined dynamically with active products to ensure zero data-loss
   // Filter: Keep only categories that have at least one visible product assigned to them
   const activeProductCategories = new Set(
-    products.filter(p => p.is_visible).map(p => p.category.toLowerCase().trim())
+    products
+      .filter(p => p.is_visible && p.category)
+      .map(p => p.category.toLowerCase().trim())
   );
 
   const categoriesSet = new Set<string>();
@@ -431,13 +499,13 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
       if (!p.is_visible) return false;
       
       // 2. Category match
-      const matchesCategory = selectedCategory === 'General' || p.category.toLowerCase() === selectedCategory.toLowerCase();
+      const matchesCategory = selectedCategory === 'General' || (p.category && p.category.toLowerCase() === selectedCategory.toLowerCase());
 
       // 3. Search query match
       const matchesSearch = 
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        p.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.category.toLowerCase().includes(searchQuery.toLowerCase());
+        (p.name && p.name.toLowerCase().includes(searchQuery.toLowerCase())) || 
+        (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (p.category && p.category.toLowerCase().includes(searchQuery.toLowerCase()));
 
       // 4. Min Price check (on getPromoPrice)
       const finalPrice = getPromoPrice(p);
@@ -872,6 +940,13 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
               >
                 Reintentar Conexión Directa
               </button>
+              <button 
+                type="button"
+                onClick={() => onAdminOpen()}
+                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-[11px] p-3 rounded-xl transition-all cursor-pointer active:scale-98 uppercase tracking-wider mt-2 border border-slate-200"
+              >
+                Configurar / Panel de Control
+              </button>
             </div>
           )}
         </div>
@@ -1125,14 +1200,16 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
 
           {/* Categoría tabs selector with horizontal arrows */}
           <div className="flex items-center gap-2 relative">
-            <button
-              type="button"
-              onClick={() => scrollCategories('left')}
-              className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 p-2 rounded-xl transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer flex items-center justify-center"
-              title="Desplazar a la izquierda"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
+            {canScrollCategoriesLeft && (
+              <button
+                type="button"
+                onClick={() => scrollCategories('left')}
+                className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 p-2 rounded-xl transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer flex items-center justify-center animate-fade-in"
+                title="Desplazar a la izquierda"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+            )}
 
             <div 
               ref={categoryContainerRef}
@@ -1157,14 +1234,16 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
               })}
             </div>
 
-            <button
-              type="button"
-              onClick={() => scrollCategories('right')}
-              className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 p-2 rounded-xl transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer flex items-center justify-center"
-              title="Desplazar a la derecha"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
+            {canScrollCategoriesRight && (
+              <button
+                type="button"
+                onClick={() => scrollCategories('right')}
+                className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 p-2 rounded-xl transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer flex items-center justify-center animate-fade-in"
+                title="Desplazar a la derecha"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -2049,57 +2128,86 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
 
                 {/* Galería de imágenes secundarias (Miniaturas) */}
                 {((selectedProduct.gallery_images && selectedProduct.gallery_images.length > 0) || (selectedProduct.variants && selectedProduct.variants.length > 0)) && (
-                  <div className="w-full p-3 bg-white border-t border-gray-100 flex items-center gap-2 overflow-x-auto">
-                    {/* Imagen principal como miniatura */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCurrentModalImage(selectedProduct.image_url || '');
-                        setActiveVariant(null);
-                      }}
-                      className={`w-10 h-10 rounded-lg border-2 overflow-hidden shrink-0 transition-all ${
-                        (!activeVariant && currentModalImage === selectedProduct.image_url) ? 'border-teal-600 scale-105' : 'border-gray-200'
-                      }`}
-                    >
-                      <img src={selectedProduct.image_url} alt="Principal" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    </button>
+                  <div className="w-full bg-white border-t border-gray-100 relative">
+                    <div className="flex items-center gap-1.5 px-3 py-1">
+                      {canScrollGalleryLeft && (
+                        <button
+                          type="button"
+                          onClick={() => scrollGallery('left')}
+                          className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 p-1 rounded-lg shadow-sm active:scale-95 shrink-0 cursor-pointer flex items-center justify-center z-10 animate-fade-in"
+                          title="Desplazar a la izquierda"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                      )}
 
-                    {/* Imágenes de la Galería */}
-                    {selectedProduct.gallery_images && selectedProduct.gallery_images.map((img, idx) => img && (
-                      <button
-                        key={`gal-${idx}`}
-                        type="button"
-                        onClick={() => {
-                          setCurrentModalImage(img);
-                        }}
-                        className={`w-10 h-10 rounded-lg border-2 overflow-hidden shrink-0 transition-all ${
-                          (currentModalImage === img) ? 'border-teal-600 scale-105' : 'border-gray-200'
-                        }`}
+                      <div 
+                        ref={galleryContainerRef}
+                        className="flex-1 flex items-center gap-2 overflow-x-auto py-2 scrollbar-none scroll-smooth"
                       >
-                        <img src={img} alt={`Galería ${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                      </button>
-                    ))}
+                        {/* Imagen principal como miniatura */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCurrentModalImage(selectedProduct.image_url || '');
+                            setActiveVariant(null);
+                          }}
+                          className={`w-10 h-10 rounded-lg border-2 overflow-hidden shrink-0 transition-all ${
+                            (!activeVariant && currentModalImage === selectedProduct.image_url) ? 'border-teal-600 scale-105' : 'border-gray-200'
+                          }`}
+                        >
+                          <img src={selectedProduct.image_url} alt="Principal" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        </button>
 
-                    {/* Imágenes de Variantes */}
-                    {selectedProduct.variants && selectedProduct.variants.map((variant: any, idx: number) => variant.image_url && (
-                      <button
-                        key={`var-img-${idx}`}
-                        type="button"
-                        onClick={() => {
-                          setCurrentModalImage(variant.image_url);
-                          setActiveVariant(variant);
-                        }}
-                        className={`w-10 h-10 rounded-lg border-2 overflow-hidden shrink-0 transition-all relative ${
-                          (activeVariant?.id === variant.id) ? 'border-teal-600 scale-105' : 'border-gray-200'
-                        }`}
-                        title={variant.name}
-                      >
-                        <img src={variant.image_url} alt={variant.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                        <span className="absolute bottom-0 inset-x-0 bg-slate-900/60 text-white text-[7px] text-center truncate px-0.5 font-bold">
-                          {variant.name}
-                        </span>
-                      </button>
-                    ))}
+                        {/* Imágenes de la Galería */}
+                        {selectedProduct.gallery_images && selectedProduct.gallery_images.map((img, idx) => img && (
+                          <button
+                            key={`gal-${idx}`}
+                            type="button"
+                            onClick={() => {
+                              setCurrentModalImage(img);
+                            }}
+                            className={`w-10 h-10 rounded-lg border-2 overflow-hidden shrink-0 transition-all ${
+                              (currentModalImage === img) ? 'border-teal-600 scale-105' : 'border-gray-200'
+                            }`}
+                          >
+                            <img src={img} alt={`Galería ${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          </button>
+                        ))}
+
+                        {/* Imágenes de Variantes */}
+                        {selectedProduct.variants && selectedProduct.variants.map((variant: any, idx: number) => variant.image_url && (
+                          <button
+                            key={`var-img-${idx}`}
+                            type="button"
+                            onClick={() => {
+                              setCurrentModalImage(variant.image_url);
+                              setActiveVariant(variant);
+                            }}
+                            className={`w-10 h-10 rounded-lg border-2 overflow-hidden shrink-0 transition-all relative ${
+                              (activeVariant?.id === variant.id) ? 'border-teal-600 scale-105' : 'border-gray-200'
+                            }`}
+                            title={variant.name}
+                          >
+                            <img src={variant.image_url} alt={variant.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            <span className="absolute bottom-0 inset-x-0 bg-slate-900/60 text-white text-[7px] text-center truncate px-0.5 font-bold">
+                              {variant.name}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+
+                      {canScrollGalleryRight && (
+                        <button
+                          type="button"
+                          onClick={() => scrollGallery('right')}
+                          className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 p-1 rounded-lg shadow-sm active:scale-95 shrink-0 cursor-pointer flex items-center justify-center z-10 animate-fade-in"
+                          title="Desplazar a la derecha"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -2457,49 +2565,250 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
         </div>
       )}
 
-      {/* Floating About / Address Map Location Button */}
-      {settings?.about_visible !== false && (
-        <div className={`fixed bottom-[84px] z-[95] print:hidden transition-all duration-300 ${isCartOpen ? 'left-6 md:left-auto md:right-[464px]' : 'right-6 md:right-6'}`}>
-          <button
-            onClick={() => setIsAboutOpen(true)}
-            type="button"
-            title="Ver Dirección y Mapa (Ubicación)"
-            className={`flex items-center bg-slate-950 border-2 border-[#14B8A6] text-white rounded-full transition-all duration-300 cursor-pointer group focus:outline-none ${
-              isCartOpen ? 'p-3' : 'p-3 px-4.5'
-            } shadow-[0_0_20px_rgba(20,184,166,0.3)] hover:shadow-[0_0_25px_rgba(20,184,166,0.6)] hover:border-teal-400 active:scale-95`}
-          >
-            <div className="relative">
-              <MapPin className="w-4 h-4 text-teal-400 animate-pulse group-hover:rotate-12 transition-transform" />
-            </div>
-            <span className={`text-xs font-black tracking-wider uppercase text-teal-400 font-mono transition-all duration-300 overflow-hidden whitespace-nowrap ${isCartOpen ? 'max-w-0 opacity-0' : 'max-w-xs opacity-100 ml-2'}`}>
-              Dirección & Mapa
+      {/* 🚀 EXPANDABLE HIGH-FIDELITY FLOATING ACTION BUTTON (FAB) MENU */}
+      <div className={`fixed bottom-6 z-[95] print:hidden transition-all duration-300 flex flex-col items-end gap-3 ${isCartOpen ? 'left-6 md:left-auto md:right-[464px] !items-start' : 'right-6 md:right-6'}`}>
+        
+        {/* Child Floating Buttons Container */}
+        <div className={`flex flex-col gap-3 transition-all duration-300 ease-out origin-bottom ${
+          isFabMenuOpen 
+            ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto' 
+            : 'opacity-0 translate-y-6 scale-75 pointer-events-none'
+        } ${isCartOpen ? 'items-start' : 'items-end'}`}>
+          
+          {/* Item 3: QR Code & Link (New Feature) */}
+          <div className={`flex items-center gap-2 ${isCartOpen ? 'flex-row-reverse' : 'flex-row'}`}>
+            <span className="bg-slate-900/95 text-teal-400 border border-teal-500/30 font-black px-3 py-1.5 rounded-lg text-[10px] uppercase tracking-widest shadow-xl font-mono select-none">
+              Código QR y Enlace
             </span>
-          </button>
-        </div>
-      )}
-
-      {/* Floating Personal Brand Card Badge */}
-      <div className={`fixed bottom-6 z-[95] print:hidden transition-all duration-300 ${isCartOpen ? 'left-6 md:left-auto md:right-[464px]' : 'right-6 md:right-6'}`}>
-        <button
-          onClick={() => setIsBusinessCardOpen(true)}
-          type="button"
-          title="Ver Tarjeta de Contacto y Servicios"
-          className={`flex items-center bg-slate-950 border-2 border-[#fbbf24] text-white rounded-full transition-all duration-300 cursor-pointer group focus:outline-none ${
-            isCartOpen ? 'p-3' : 'p-3 px-4.5'
-          } shadow-[0_0_20px_rgba(251,191,36,0.3)] hover:shadow-[0_0_25px_rgba(251,191,36,0.6)] hover:border-yellow-400 active:scale-95`}
-        >
-          <div className="relative">
-            <Sparkles className="w-4 h-4 text-yellow-400 animate-pulse group-hover:rotate-12 transition-transform" />
-            <span className="absolute -top-1 -right-1 flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-450 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-500"></span>
-            </span>
+            <button
+              onClick={() => {
+                setIsQrModalOpen(true);
+                setIsFabMenuOpen(false); // Close fab menu when modal opens
+              }}
+              type="button"
+              title="Ver Código QR y Enlace de la Tienda"
+              className="w-12 h-12 flex items-center justify-center bg-slate-950 border-2 border-teal-500 text-teal-400 rounded-full cursor-pointer hover:bg-slate-900 shadow-[0_0_15px_rgba(20,184,166,0.2)] hover:shadow-[0_0_20px_rgba(20,184,166,0.5)] active:scale-95 transition-all duration-200"
+            >
+              <QrCode className="w-5 h-5" />
+            </button>
           </div>
-          <span className={`text-xs font-black tracking-wider uppercase text-[#fbbf24] font-mono transition-all duration-300 overflow-hidden whitespace-nowrap ${isCartOpen ? 'max-w-0 opacity-0' : 'max-w-xs opacity-100 ml-2'}`}>
-            Contacto & Servicios
-          </span>
+
+          {/* Item 2: Address / Map Pin (Conditional) */}
+          {settings?.about_visible !== false && (
+            <div className={`flex items-center gap-2 ${isCartOpen ? 'flex-row-reverse' : 'flex-row'}`}>
+              <span className="bg-slate-900/95 text-teal-400 border border-teal-500/30 font-black px-3 py-1.5 rounded-lg text-[10px] uppercase tracking-widest shadow-xl font-mono select-none">
+                Dirección & Mapa
+              </span>
+              <button
+                onClick={() => {
+                  setIsAboutOpen(true);
+                  setIsFabMenuOpen(false);
+                }}
+                type="button"
+                title="Ver Dirección y Mapa"
+                className="w-12 h-12 flex items-center justify-center bg-slate-950 border-2 border-[#14B8A6] text-teal-400 rounded-full cursor-pointer hover:bg-slate-900 shadow-[0_0_15px_rgba(20,184,166,0.2)] hover:shadow-[0_0_20px_rgba(20,184,166,0.5)] active:scale-95 transition-all duration-200"
+              >
+                <MapPin className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+
+          {/* Item 1: Contact & Services Badge */}
+          <div className={`flex items-center gap-2 ${isCartOpen ? 'flex-row-reverse' : 'flex-row'}`}>
+            <span className="bg-slate-900/95 text-yellow-400 border border-yellow-500/30 font-black px-3 py-1.5 rounded-lg text-[10px] uppercase tracking-widest shadow-xl font-mono select-none">
+              Contacto & Servicios
+            </span>
+            <button
+              onClick={() => {
+                setIsBusinessCardOpen(true);
+                setIsFabMenuOpen(false);
+              }}
+              type="button"
+              title="Ver Tarjeta de Contacto"
+              className="w-12 h-12 flex items-center justify-center bg-slate-950 border-2 border-yellow-500 text-yellow-400 rounded-full cursor-pointer hover:bg-slate-900 shadow-[0_0_15px_rgba(251,191,36,0.2)] hover:shadow-[0_0_20px_rgba(251,191,36,0.5)] active:scale-95 transition-all duration-200"
+            >
+              <Sparkles className="w-5 h-5" />
+            </button>
+          </div>
+
+        </div>
+
+        {/* Main Floating Button (Expander) */}
+        <button
+          onClick={() => setIsFabMenuOpen(!isFabMenuOpen)}
+          type="button"
+          title={isFabMenuOpen ? "Cerrar Menú" : "Más Opciones de la Tienda"}
+          className={`w-14 h-14 flex items-center justify-center rounded-full transition-all duration-300 cursor-pointer shadow-[0_0_25px_rgba(20,184,166,0.35)] hover:shadow-[0_0_30px_rgba(20,184,166,0.6)] focus:outline-none border-2 active:scale-95 text-white ${
+            isFabMenuOpen 
+              ? 'bg-rose-600 border-rose-400 hover:bg-rose-700 hover:border-rose-500 shadow-[0_0_25px_rgba(225,29,72,0.5)] animate-none' 
+              : 'bg-slate-950 border-teal-400 hover:border-teal-300'
+          }`}
+        >
+          {isFabMenuOpen ? (
+            <X className="w-6 h-6 transform rotate-90 transition-transform duration-300" />
+          ) : (
+            <div className="relative flex items-center justify-center">
+              <Compass className="w-6 h-6 text-teal-400 transform rotate-0 transition-transform duration-300 animate-pulse" />
+              <span className="absolute -top-1.5 -right-1.5 flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-teal-500"></span>
+              </span>
+            </div>
+          )}
         </button>
       </div>
+
+      {/* 🔮 MODAL FOR QR CODE AND STORE LINK */}
+      {isQrModalOpen && (
+        <div className="fixed inset-0 z-[110] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in" onClick={() => setIsQrModalOpen(false)}>
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl border border-gray-100 flex flex-col text-xs animate-scale-up"
+          >
+            {/* Header */}
+            <div className="p-5 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <QrCode className="w-5 h-5 text-teal-400" />
+                <h3 className="font-extrabold text-sm uppercase tracking-wider font-sans">Compartir Tienda</h3>
+              </div>
+              <button 
+                onClick={() => setIsQrModalOpen(false)} 
+                className="text-slate-300 hover:text-white cursor-pointer bg-slate-800 p-1.5 rounded-lg transition-colors"
+                title="Cerrar modal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-6 text-center">
+              <div>
+                <h4 className="text-xs font-black text-slate-800 uppercase tracking-wide">
+                  {settings?.shop_name || 'Boutique Minimal'}
+                </h4>
+                <p className="text-[10px] text-slate-500 mt-1 max-w-xs mx-auto font-medium">
+                  {settings?.shop_description || 'Artículos premium en un solo toque.'}
+                </p>
+              </div>
+
+              {/* QR Code Container */}
+              <div className="relative flex flex-col items-center justify-center p-4 bg-slate-50 rounded-2xl border border-slate-100/80 max-w-[210px] mx-auto shadow-inner">
+                <img 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(settings?.store_url || window.location.origin)}`}
+                  alt="Código QR de la Tienda"
+                  className="w-36 h-36 object-contain rounded-xl select-none"
+                  referrerPolicy="no-referrer"
+                />
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-2 block">
+                  Escanear para entrar
+                </span>
+              </div>
+
+              {/* Link Input Section */}
+              <div className="space-y-1.5">
+                <span className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider text-left">
+                  Enlace Oficial de la Tienda
+                </span>
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200/50 p-2 rounded-xl">
+                  <span className="flex-1 text-left font-mono text-[10px] text-slate-600 truncate px-1 select-all">
+                    {settings?.store_url || window.location.origin}
+                  </span>
+                  <a 
+                    href={settings?.store_url || window.location.origin} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-teal-600 hover:border-teal-300 transition-colors shadow-xs"
+                    title="Visitar enlace"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              </div>
+
+              {/* Interactive Actions Grid */}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                {/* Copy Link Button */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(settings?.store_url || window.location.origin);
+                      setCopiedLink(true);
+                      setTimeout(() => setCopiedLink(false), 2000);
+                    } catch (err) {
+                      console.error(err);
+                    }
+                  }}
+                  className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border font-bold text-[10px] uppercase tracking-wider transition-all active:scale-95 cursor-pointer ${
+                    copiedLink 
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-600' 
+                      : 'bg-white hover:bg-slate-50 border-gray-200 text-slate-700 shadow-sm'
+                  }`}
+                >
+                  {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+                  <span>{copiedLink ? '¡Copiado!' : 'Enlace'}</span>
+                </button>
+
+                {/* Copy QR Image Button */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(settings?.store_url || window.location.origin)}`;
+                      const res = await fetch(qrUrl);
+                      const blob = await res.blob();
+                      await navigator.clipboard.write([
+                        new ClipboardItem({ [blob.type]: blob })
+                      ]);
+                      setCopiedQr(true);
+                      setTimeout(() => setCopiedQr(false), 2000);
+                    } catch (err) {
+                      console.error(err);
+                      alert('Tu navegador no permite copiar imágenes al portapapeles. ¡Usa la opción de Descargar!');
+                    }
+                  }}
+                  className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border font-bold text-[10px] uppercase tracking-wider transition-all active:scale-95 cursor-pointer ${
+                    copiedQr 
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-600' 
+                      : 'bg-white hover:bg-slate-50 border-gray-200 text-slate-700 shadow-sm'
+                  }`}
+                >
+                  {copiedQr ? <Check className="w-3.5 h-3.5" /> : <QrCode className="w-3.5 h-3.5 text-slate-400" />}
+                  <span>{copiedQr ? '¡Copiado!' : 'Copiar QR'}</span>
+                </button>
+              </div>
+
+              {/* Download QR Button (Full Width) */}
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(settings?.store_url || window.location.origin)}`;
+                    const res = await fetch(qrUrl);
+                    const blob = await res.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = `QR_${settings?.shop_name || 'Tienda'}.png`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                  } catch (err) {
+                    console.error(err);
+                    alert('Error al descargar el código QR.');
+                  }
+                }}
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-black text-[10px] uppercase tracking-widest shadow-md hover:shadow-lg transition-all active:scale-[0.98] cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Descargar QR (PNG)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* High-Fidelity Custom Digital Postcard Modal Overlay */}
       {isBusinessCardOpen && (

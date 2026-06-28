@@ -46,6 +46,7 @@ create table if not exists shop_settings (
   telegram_bot_token varchar default '',
   telegram_chat_id varchar default '',
   telegram_enabled boolean default false,
+  store_url varchar default '',
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -123,6 +124,7 @@ alter table shop_settings add column if not exists maps_embed_url varchar defaul
 alter table shop_settings add column if not exists telegram_bot_token varchar default '';
 alter table shop_settings add column if not exists telegram_chat_id varchar default '';
 alter table shop_settings add column if not exists telegram_enabled boolean default false;
+alter table shop_settings add column if not exists store_url varchar default '';
 
 -- Insertar trabajadores por defecto si no existen:
 -- Admin: Admin123!
@@ -407,6 +409,7 @@ create table if not exists shop_settings (
   telegram_bot_token varchar default '',
   telegram_chat_id varchar default '',
   telegram_enabled boolean default false,
+  store_url varchar default '',
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -601,6 +604,7 @@ alter table shop_settings add column if not exists maps_embed_url varchar defaul
 alter table shop_settings add column if not exists telegram_bot_token varchar default '';
 alter table shop_settings add column if not exists telegram_chat_id varchar default '';
 alter table shop_settings add column if not exists telegram_enabled boolean default false;
+alter table shop_settings add column if not exists store_url varchar default '';
 
 -- =========================================================
 -- ACTIVACIÓN DE SUPABASE REALTIME PARA TODAS LAS TABLAS
