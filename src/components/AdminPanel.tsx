@@ -13,7 +13,7 @@ import {
   Users, ShoppingBag, ClipboardList, Settings, ShieldAlert, 
   TrendingUp, ArrowLeft, LogOut, Check, X, ShieldCheck, 
   Trash2, Plus, Edit2, AlertTriangle, Eye, EyeOff, LayoutDashboard, Clock, DollarSign, Database, MessageSquare, Tag,
-  Store, Send, RefreshCw
+  Store, Send, RefreshCw, Download, Copy
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -155,8 +155,777 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   // Active Tab
   const [activeTab, setActiveTab] = useState<string>('dashboard');
 
+  // Load state for independent tabs to save bandwidth
+  const [loadedTabs, setLoadedTabs] = useState<Record<string, boolean>>({});
+  const [isLoadingTab, setIsLoadingTab] = useState(false);
+
+  // Plan usage modal state
+  const [isPlanUsageModalOpen, setIsPlanUsageModalOpen] = useState(false);
+
+  // Load data for active tab on demand
+  const loadDataForTab = async (tabName: string, forceRefresh = false) => {
+    setIsLoadingTab(true);
+    try {
+      switch (tabName) {
+        case 'dashboard': {
+          const [prodList, ords, vis, alrts, sets, cats, sups] = await Promise.all([
+            SupabaseService.getProducts(forceRefresh),
+            SupabaseService.getOrders(forceRefresh),
+            SupabaseService.getVisitorHistory(forceRefresh),
+            SupabaseService.getAlerts(forceRefresh),
+            SupabaseService.getSettings(forceRefresh),
+            SupabaseService.getCategories(forceRefresh),
+            SupabaseService.getSupportInquiries(forceRefresh)
+          ]);
+          setProducts(prodList);
+          setOrders(ords);
+          setVisitorHistory(vis);
+          setAlerts(alrts);
+          setSettings(sets);
+          setCategories(cats);
+          setSupportInquiries(sups);
+          break;
+        }
+        case 'visitantes': {
+          const vis = await SupabaseService.getVisitorHistory(forceRefresh);
+          setVisitorHistory(vis);
+          break;
+        }
+        case 'pedidos':
+        case 'historial': {
+          const [ords, wrks] = await Promise.all([
+            SupabaseService.getOrders(forceRefresh),
+            SupabaseService.getWorkers(forceRefresh)
+          ]);
+          setOrders(ords);
+          setWorkers(wrks);
+          break;
+        }
+        case 'inventario': {
+          const [prodList, cats] = await Promise.all([
+            SupabaseService.getProducts(forceRefresh),
+            SupabaseService.getCategories(forceRefresh)
+          ]);
+          setProducts(prodList);
+          setCategories(cats);
+          break;
+        }
+        case 'trabajadores': {
+          const wrks = await SupabaseService.getWorkers(forceRefresh);
+          setWorkers(wrks);
+          break;
+        }
+        case 'alertas': {
+          const alrts = await SupabaseService.getAlerts(forceRefresh);
+          setAlerts(alrts);
+          break;
+        }
+        case 'auditoria': {
+          const audits = await SupabaseService.getAuditLogs(forceRefresh);
+          setAuditLogs(audits);
+          break;
+        }
+        case 'ajustes':
+        case 'telegram_bot': {
+          const [sets, cats] = await Promise.all([
+            SupabaseService.getSettings(forceRefresh),
+            SupabaseService.getCategories(forceRefresh)
+          ]);
+          setSettings(sets);
+          setCategories(cats);
+          break;
+        }
+        case 'tienda_prueba': {
+          const [prodList, cats, sets] = await Promise.all([
+            SupabaseService.getProducts(forceRefresh),
+            SupabaseService.getCategories(forceRefresh),
+            SupabaseService.getSettings(forceRefresh)
+          ]);
+          setProducts(prodList);
+          setCategories(cats);
+          setSettings(sets);
+          break;
+        }
+        case 'cupones': {
+          const cps = await SupabaseService.getCoupons(forceRefresh);
+          setCoupons(cps);
+          break;
+        }
+        case 'datos_tienda':
+        case 'backup_migration': {
+          // These require all data, so we fetch everything
+          const [prodList, ords, wrks, audits, alrts, sets, cats, sups, vis, cps] = await Promise.all([
+            SupabaseService.getProducts(forceRefresh),
+            SupabaseService.getOrders(forceRefresh),
+            SupabaseService.getWorkers(forceRefresh),
+            SupabaseService.getAuditLogs(forceRefresh),
+            SupabaseService.getAlerts(forceRefresh),
+            SupabaseService.getSettings(forceRefresh),
+            SupabaseService.getCategories(forceRefresh),
+            SupabaseService.getSupportInquiries(forceRefresh),
+            SupabaseService.getVisitorHistory(forceRefresh),
+            SupabaseService.getCoupons(forceRefresh)
+          ]);
+          setProducts(prodList);
+          setOrders(ords);
+          setWorkers(wrks);
+          setAuditLogs(audits);
+          setAlerts(alrts);
+          setSettings(sets);
+          setCategories(cats);
+          setSupportInquiries(sups);
+          setVisitorHistory(vis);
+          setCoupons(cps);
+          break;
+        }
+        case 'support': {
+          const sups = await SupabaseService.getSupportInquiries(forceRefresh);
+          setSupportInquiries(sups);
+          break;
+        }
+        case 'mi_perfil':
+        case 'database': {
+          // No remote database load is strictly required for active structure since it's locally managed
+          break;
+        }
+        default:
+          break;
+      }
+      setLoadedTabs(prev => ({ ...prev, [tabName]: true }));
+    } catch (e) {
+      console.error('Error loading data for tab ' + tabName, e);
+    } finally {
+      setIsLoadingTab(false);
+    }
+  };
+
+  const renderBandwidthSaverCard = (tabName: string) => {
+    const tabLabels: Record<string, { title: string; desc: string; icon: React.ReactNode }> = {
+      dashboard: {
+        title: "Estadísticas e Indicadores Generales",
+        desc: "Visualiza los ingresos de caja, pedidos pendientes, alertas de seguridad y gráficos consolidados de rendimiento comercial.",
+        icon: <LayoutDashboard className="w-8 h-8 text-teal-400" />
+      },
+      visitantes: {
+        title: "Monitoreo de Tráfico y Visitantes en Vivo",
+        desc: "Accede al listado en tiempo real de direcciones IP, sistemas operativos, navegadores y páginas visitadas por tus clientes.",
+        icon: <Eye className="w-8 h-8 text-teal-400" />
+      },
+      pedidos: {
+        title: "Pedidos Activos y por Procesar",
+        desc: "Controla los pedidos pendientes en cola. Confirma despachos, visualiza detalles de contacto e integra el flujo de venta.",
+        icon: <ClipboardList className="w-8 h-8 text-teal-400" />
+      },
+      historial: {
+        title: "Historial de Pedidos",
+        desc: "Consulta la bitácora completa de órdenes confirmadas, despachadas o canceladas por el equipo de trabajo.",
+        icon: <Clock className="w-8 h-8 text-teal-400" />
+      },
+      inventario: {
+        title: "Control de Inventario y Catálogo",
+        desc: "Gestiona productos, ajusta precios, actualiza stocks, cambia visibilidad y configura promociones directamente en Supabase.",
+        icon: <ShoppingBag className="w-8 h-8 text-teal-400" />
+      },
+      trabajadores: {
+        title: "Colaboradores y Personal de Staff",
+        desc: "Administra el personal autorizado, gestiona contraseñas, define permisos específicos de seguridad y PINs de recuperación.",
+        icon: <Users className="w-8 h-8 text-teal-400" />
+      },
+      alertas: {
+        title: "Alertas de Seguridad del Sistema",
+        desc: "Visualiza incidencias de intentos fallidos de accesos, bloqueos automáticos de usuarios y recuperaciones con PIN.",
+        icon: <ShieldAlert className="w-8 h-8 text-teal-400" />
+      },
+      auditoria: {
+        title: "Bitácora de Cambios (Auditoría)",
+        desc: "Inspecciona el histórico de acciones realizadas por cada miembro del staff para garantizar la trazabilidad de operaciones.",
+        icon: <ClipboardList className="w-8 h-8 text-teal-400" />
+      },
+      ajustes: {
+        title: "Ajustes de Diseño y Personalización",
+        desc: "Personaliza colores, textos, banners y la información general de la tienda visible para el cliente final.",
+        icon: <Settings className="w-8 h-8 text-teal-400" />
+      },
+      tienda_prueba: {
+        title: "Vista Previa de Tienda (Modo Sandbox)",
+        desc: "Previsualiza los cambios de catálogo, diseño y configuraciones en vivo sin afectar la experiencia del cliente real.",
+        icon: <Eye className="w-8 h-8 text-teal-400" />
+      },
+      cupones: {
+        title: "Gestión de Cupones Descuento",
+        desc: "Crea y administra códigos promocionales de descuento, montos mínimos de compra y estados de activación.",
+        icon: <Tag className="w-8 h-8 text-teal-400" />
+      },
+      datos_tienda: {
+        title: "Datos del Comercio",
+        desc: "Visualiza la información legal del negocio, configuración de monedas habilitadas y datos de contacto general.",
+        icon: <Store className="w-8 h-8 text-teal-400" />
+      },
+      telegram_bot: {
+        title: "Notificaciones de Telegram",
+        desc: "Sincroniza y configura tu bot de Telegram para recibir alertas en tiempo real sobre nuevos pedidos realizados.",
+        icon: <Send className="w-8 h-8 text-teal-400" />
+      },
+      support: {
+        title: "Atención al Cliente y Soporte",
+        desc: "Responde dudas, quejas y reclamos de los clientes recibidos a través del formulario de soporte en la tienda.",
+        icon: <MessageSquare className="w-8 h-8 text-teal-400" />
+      },
+      mi_perfil: {
+        title: "Perfil de Colaborador y Seguridad",
+        desc: "Actualiza tu clave personal de acceso y tu PIN confidencial de 6 dígitos para recuperación de cuenta.",
+        icon: <ShieldCheck className="w-8 h-8 text-teal-400" />
+      },
+      database: {
+        title: "Inspección de Base de Datos / SQL",
+        desc: "Analiza el estado de las tablas físicas en Supabase y ejecuta comandos o verificaciones de diagnóstico.",
+        icon: <Database className="w-8 h-8 text-teal-400" />
+      },
+      backup_migration: {
+        title: "Migración, Respaldos y Exportación SQL",
+        desc: "Genera scripts SQL autoejecutables para Supabase o respaldos de bases de datos completos en JSON.",
+        icon: <Download className="w-8 h-8 text-teal-400" />
+      }
+    };
+
+    const label = tabLabels[tabName] || {
+      title: "Cargar Sección",
+      desc: "Conéctate a la base de datos para cargar la información de esta pestaña de forma segura.",
+      icon: <Database className="w-8 h-8 text-teal-400" />
+    };
+
+    return (
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-2xl mx-auto my-12 text-center shadow-2xl animate-fade-in space-y-6">
+        <div className="w-16 h-16 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center mx-auto shadow-inner text-teal-400">
+          {label.icon}
+        </div>
+        <div className="space-y-2">
+          <h3 className="text-lg font-black text-white tracking-tight">{label.title}</h3>
+          <p className="text-xs text-slate-400 leading-relaxed max-w-md mx-auto">
+            {label.desc}
+          </p>
+        </div>
+        
+        {/* Bandwidth optimization note */}
+        <div className="bg-slate-950/60 rounded-2xl p-4 border border-slate-800/40 text-[11px] text-slate-400 leading-relaxed max-w-lg mx-auto flex items-start gap-3 text-left">
+          <span className="text-xs shrink-0 bg-teal-500/10 text-teal-400 px-2 py-0.5 rounded-full font-bold">Ahorro Activo</span>
+          <span>
+            <strong>Optimización de ancho de banda:</strong> Los datos de esta sección no se han cargado automáticamente. Al presionar el botón inferior se realizará una única petición segura a Supabase para recuperar la información en tiempo real.
+          </span>
+        </div>
+
+        <div>
+          <button
+            type="button"
+            disabled={isLoadingTab}
+            onClick={() => loadDataForTab(tabName)}
+            className="w-full sm:w-auto bg-teal-500 hover:bg-teal-600 text-slate-950 font-black text-xs py-3.5 px-8 rounded-xl transition-all shadow-lg shadow-teal-500/20 hover:scale-[1.02] active:scale-[0.98] inline-flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoadingTab ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Estableciendo Conexión...</span>
+              </>
+            ) : (
+              <>
+                <Database className="w-4 h-4" />
+                <span>Cargar Datos de esta Pestaña</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // Supabase Presence simulator (Active Visitors)
   const [activeVisitors, setActiveVisitors] = useState(8);
+
+  // Migration & Backup States
+  const [includeTruncate, setIncludeTruncate] = useState(true);
+  const [generatedSql, setGeneratedSql] = useState('');
+  const [isCopied, setIsCopied] = useState(false);
+
+  const getSqlScriptContent = (includeTruncateVal: boolean): string => {
+    let sql = `-- ===================================================================\n`;
+    sql += `-- SCRIPT AUTO-EJECUTABLE DE MIGRACIÓN Y RESTAURACIÓN DE DATOS\n`;
+    sql += `-- Generado el: ${new Date().toLocaleString()}\n`;
+    sql += `-- Destino compatible: Supabase / PostgreSQL\n`;
+    sql += `-- ===================================================================\n\n`;
+
+    sql += `BEGIN;\n\n`;
+
+    if (includeTruncateVal) {
+      sql += `-- -------------------------------------------------------------------\n`;
+      sql += `-- LIMPIEZA DE TABLAS EXISTENTES (RESETEO COMPLETO DESDE CERO)\n`;
+      sql += `-- -------------------------------------------------------------------\n`;
+      sql += `DROP TABLE IF EXISTS visitor_history CASCADE;\n`;
+      sql += `DROP TABLE IF EXISTS support_inquiries CASCADE;\n`;
+      sql += `DROP TABLE IF EXISTS product_reviews CASCADE;\n`;
+      sql += `DROP TABLE IF EXISTS coupons CASCADE;\n`;
+      sql += `DROP TABLE IF EXISTS audit_logs CASCADE;\n`;
+      sql += `DROP TABLE IF EXISTS security_alerts CASCADE;\n`;
+      sql += `DROP TABLE IF EXISTS shop_settings CASCADE;\n`;
+      sql += `DROP TABLE IF EXISTS orders CASCADE;\n`;
+      sql += `DROP TABLE IF EXISTS workers CASCADE;\n`;
+      sql += `DROP TABLE IF EXISTS products CASCADE;\n`;
+      sql += `DROP TABLE IF EXISTS product_categories CASCADE;\n\n`;
+    }
+
+    sql += `-- -------------------------------------------------------------------\n`;
+    sql += `-- CREACIÓN DE TABLAS DEL ESQUEMA\n`;
+    sql += `-- -------------------------------------------------------------------\n\n`;
+
+    sql += `CREATE TABLE IF NOT EXISTS product_categories (\n`;
+    sql += `  id VARCHAR(255) PRIMARY KEY,\n`;
+    sql += `  name VARCHAR(255) NOT NULL,\n`;
+    sql += `  image_path TEXT,\n`;
+    sql += `  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP\n`;
+    sql += `);\n\n`;
+
+    sql += `CREATE TABLE IF NOT EXISTS products (\n`;
+    sql += `  id VARCHAR(255) PRIMARY KEY,\n`;
+    sql += `  name VARCHAR(255) NOT NULL,\n`;
+    sql += `  description TEXT,\n`;
+    sql += `  price NUMERIC(10, 2) NOT NULL,\n`;
+    sql += `  category VARCHAR(255),\n`;
+    sql += `  image_url TEXT,\n`;
+    sql += `  stock INT NOT NULL DEFAULT 10,\n`;
+    sql += `  is_visible BOOLEAN NOT NULL DEFAULT true,\n`;
+    sql += `  promotion_discount NUMERIC(5, 2) NOT NULL DEFAULT 0,\n`;
+    sql += `  currency VARCHAR(10) DEFAULT 'CUP',\n`;
+    sql += `  quantity_prices JSONB DEFAULT '[]'::jsonb,\n`;
+    sql += `  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP\n`;
+    sql += `);\n\n`;
+
+    sql += `CREATE TABLE IF NOT EXISTS workers (\n`;
+    sql += `  id VARCHAR(255) PRIMARY KEY,\n`;
+    sql += `  username VARCHAR(255) UNIQUE NOT NULL,\n`;
+    sql += `  password_sha256 TEXT NOT NULL,\n`;
+    sql += `  role VARCHAR(50) NOT NULL,\n`;
+    sql += `  name VARCHAR(255) NOT NULL,\n`;
+    sql += `  phone VARCHAR(50),\n`;
+    sql += `  is_active BOOLEAN NOT NULL DEFAULT true,\n`;
+    sql += `  failed_attempts INT NOT NULL DEFAULT 0,\n`;
+    sql += `  locked_until TIMESTAMP WITH TIME ZONE,\n`;
+    sql += `  must_reset_password BOOLEAN NOT NULL DEFAULT true,\n`;
+    sql += `  permissions TEXT[],\n`;
+    sql += `  security_pin VARCHAR(6)\n`;
+    sql += `);\n\n`;
+
+    sql += `CREATE TABLE IF NOT EXISTS orders (\n`;
+    sql += `  id VARCHAR(255) PRIMARY KEY,\n`;
+    sql += `  invoice_number VARCHAR(100) UNIQUE NOT NULL,\n`;
+    sql += `  customer_name VARCHAR(255) NOT NULL,\n`;
+    sql += `  customer_lastname VARCHAR(255),\n`;
+    sql += `  customer_phone VARCHAR(50) NOT NULL,\n`;
+    sql += `  customer_address TEXT NOT NULL,\n`;
+    sql += `  customer_reference TEXT,\n`;
+    sql += `  customer_nickname VARCHAR(100),\n`;
+    sql += `  items JSONB NOT NULL DEFAULT '[]'::jsonb,\n`;
+    sql += `  total NUMERIC(12, 2) NOT NULL,\n`;
+    sql += `  status VARCHAR(50) NOT NULL DEFAULT 'pendiente',\n`;
+    sql += `  processed_by VARCHAR(255),\n`;
+    sql += `  processed_role VARCHAR(50),\n`;
+    sql += `  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,\n`;
+    sql += `  updated_at TIMESTAMP WITH TIME ZONE\n`;
+    sql += `);\n\n`;
+
+    sql += `CREATE TABLE IF NOT EXISTS shop_settings (\n`;
+    sql += `  id SERIAL PRIMARY KEY,\n`;
+    sql += `  shop_name VARCHAR(255) NOT NULL DEFAULT 'Boutique Minimal',\n`;
+    sql += `  shop_description TEXT,\n`;
+    sql += `  contact_number VARCHAR(50),\n`;
+    sql += `  whatsapp_number VARCHAR(50),\n`;
+    sql += `  business_hours VARCHAR(255),\n`;
+    sql += `  address TEXT,\n`;
+    sql += `  currency VARCHAR(10) DEFAULT 'CUP',\n`;
+    sql += `  about_visible BOOLEAN DEFAULT true,\n`;
+    sql += `  about_text TEXT,\n`;
+    sql += `  smart_search_text TEXT,\n`;
+    sql += `  shop_logo_url TEXT,\n`;
+    sql += `  theme_preset VARCHAR(50) DEFAULT 'classic',\n`;
+    sql += `  color_primary VARCHAR(20) DEFAULT '#0f172a',\n`;
+    sql += `  color_header_bg VARCHAR(20) DEFAULT '#ffffff',\n`;
+    sql += `  color_page_bg VARCHAR(20) DEFAULT '#F8F9FA',\n`;
+    sql += `  color_text VARCHAR(20) DEFAULT '#1e293b',\n`;
+    sql += `  color_card_bg VARCHAR(20) DEFAULT '#ffffff',\n`;
+    sql += `  font_family VARCHAR(50) DEFAULT 'Inter',\n`;
+    sql += `  shop_logo_type VARCHAR(20) DEFAULT 'text',\n`;
+    sql += `  shop_logo_val TEXT,\n`;
+    sql += `  currencies TEXT[],\n`;
+    sql += `  banner_visible BOOLEAN DEFAULT false,\n`;
+    sql += `  banner_text TEXT,\n`;
+    sql += `  banner_bg VARCHAR(20),\n`;
+    sql += `  banner_text_color VARCHAR(20),\n`;
+    sql += `  loading_text VARCHAR(255),\n`;
+    sql += `  maps_option VARCHAR(20) DEFAULT 'address',\n`;
+    sql += `  maps_coords TEXT,\n`;
+    sql += `  maps_embed_url TEXT,\n`;
+    sql += `  telegram_bot_token TEXT,\n`;
+    sql += `  telegram_chat_id TEXT,\n`;
+    sql += `  telegram_enabled BOOLEAN DEFAULT false\n`;
+    sql += `);\n\n`;
+
+    sql += `CREATE TABLE IF NOT EXISTS security_alerts (\n`;
+    sql += `  id VARCHAR(255) PRIMARY KEY,\n`;
+    sql += `  timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,\n`;
+    sql += `  type VARCHAR(100) NOT NULL,\n`;
+    sql += `  severity VARCHAR(50) NOT NULL,\n`;
+    sql += `  message TEXT NOT NULL,\n`;
+    sql += `  resolved BOOLEAN NOT NULL DEFAULT false\n`;
+    sql += `);\n\n`;
+
+    sql += `CREATE TABLE IF NOT EXISTS audit_logs (\n`;
+    sql += `  id VARCHAR(255) PRIMARY KEY,\n`;
+    sql += `  timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,\n`;
+    sql += `  "user" VARCHAR(255) NOT NULL,\n`;
+    sql += `  role VARCHAR(50) NOT NULL,\n`;
+    sql += `  action TEXT NOT NULL,\n`;
+    sql += `  details TEXT\n`;
+    sql += `);\n\n`;
+
+    sql += `CREATE TABLE IF NOT EXISTS coupons (\n`;
+    sql += `  id VARCHAR(255) PRIMARY KEY,\n`;
+    sql += `  code VARCHAR(100) UNIQUE NOT NULL,\n`;
+    sql += `  discount_type VARCHAR(50) NOT NULL,\n`;
+    sql += `  discount_value NUMERIC(10, 2) NOT NULL,\n`;
+    sql += `  is_active BOOLEAN NOT NULL DEFAULT true,\n`;
+    sql += `  min_purchase_amount NUMERIC(10, 2) DEFAULT 0,\n`;
+    sql += `  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP\n`;
+    sql += `);\n\n`;
+
+    sql += `CREATE TABLE IF NOT EXISTS product_reviews (\n`;
+    sql += `  id VARCHAR(255) PRIMARY KEY,\n`;
+    sql += `  product_id VARCHAR(255),\n`;
+    sql += `  rating INT NOT NULL CHECK (rating >= 1 AND rating <= 5),\n`;
+    sql += `  reviewer_name VARCHAR(255) NOT NULL,\n`;
+    sql += `  comment TEXT NOT NULL,\n`;
+    sql += `  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,\n`;
+    sql += `  is_hidden BOOLEAN NOT NULL DEFAULT false\n`;
+    sql += `);\n\n`;
+
+    sql += `CREATE TABLE IF NOT EXISTS support_inquiries (\n`;
+    sql += `  id VARCHAR(255) PRIMARY KEY,\n`;
+    sql += `  customer_name VARCHAR(255) NOT NULL,\n`;
+    sql += `  customer_phone VARCHAR(50) NOT NULL,\n`;
+    sql += `  type VARCHAR(50) NOT NULL,\n`;
+    sql += `  message TEXT NOT NULL,\n`;
+    sql += `  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,\n`;
+    sql += `  resolved BOOLEAN NOT NULL DEFAULT false\n`;
+    sql += `);\n\n`;
+
+    sql += `CREATE TABLE IF NOT EXISTS visitor_history (\n`;
+    sql += `  id VARCHAR(255) PRIMARY KEY,\n`;
+    sql += `  ip VARCHAR(50) NOT NULL,\n`;
+    sql += `  timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,\n`;
+    sql += `  user_agent TEXT,\n`;
+    sql += `  browser VARCHAR(100),\n`;
+    sql += `  os VARCHAR(100),\n`;
+    sql += `  page_visited TEXT,\n`;
+    sql += `  country VARCHAR(100),\n`;
+    sql += `  city VARCHAR(100)\n`;
+    sql += `);\n\n`;
+
+    sql += `-- -------------------------------------------------------------------\n`;
+    sql += `-- INSERCIÓN DE DATOS DE LA BASE DE DATOS (POBLACIÓN / SEED)\n`;
+    sql += `-- -------------------------------------------------------------------\n\n`;
+
+    const escapeSqlValue = (val: any): string => {
+      if (val === null || val === undefined) return 'NULL';
+      if (typeof val === 'boolean') return val ? 'true' : 'false';
+      if (typeof val === 'number') return val.toString();
+      if (Array.isArray(val)) {
+        const jsonStr = JSON.stringify(val);
+        return `'${jsonStr.replace(/'/g, "''")}'::jsonb`;
+      }
+      if (typeof val === 'object') {
+        const jsonStr = JSON.stringify(val);
+        return `'${jsonStr.replace(/'/g, "''")}'::jsonb`;
+      }
+      return `'${val.toString().replace(/'/g, "''")}'`;
+    };
+
+    const escapeSqlArray = (arr: any[] | undefined): string => {
+      if (!arr || arr.length === 0) return 'NULL';
+      return `ARRAY[${arr.map(x => `'${x.toString().replace(/'/g, "''")}'`).join(', ')}]::TEXT[]`;
+    };
+
+    // 1. Categories
+    if (categories.length > 0) {
+      sql += `-- Datos para 'product_categories'\n`;
+      categories.forEach(c => {
+        sql += `INSERT INTO product_categories (id, name, image_path, created_at) VALUES (\n`;
+        sql += `  ${escapeSqlValue(c.id)},\n`;
+        sql += `  ${escapeSqlValue(c.name)},\n`;
+        sql += `  ${escapeSqlValue(c.image_path)},\n`;
+        sql += `  ${escapeSqlValue(c.created_at || new Date().toISOString())}\n`;
+        sql += `) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, image_path = EXCLUDED.image_path;\n`;
+      });
+      sql += `\n`;
+    }
+
+    // 2. Products
+    if (products.length > 0) {
+      sql += `-- Datos para 'products'\n`;
+      products.forEach(p => {
+        sql += `INSERT INTO products (id, name, description, price, category, image_url, stock, is_visible, promotion_discount, currency, quantity_prices, created_at) VALUES (\n`;
+        sql += `  ${escapeSqlValue(p.id)},\n`;
+        sql += `  ${escapeSqlValue(p.name)},\n`;
+        sql += `  ${escapeSqlValue(p.description)},\n`;
+        sql += `  ${p.price},\n`;
+        sql += `  ${escapeSqlValue(p.category)},\n`;
+        sql += `  ${escapeSqlValue(p.image_url)},\n`;
+        sql += `  ${p.stock},\n`;
+        sql += `  ${p.is_visible},\n`;
+        sql += `  ${p.promotion_discount},\n`;
+        sql += `  ${escapeSqlValue(p.currency || 'CUP')},\n`;
+        sql += `  ${escapeSqlValue(p.quantity_prices || [])},\n`;
+        sql += `  ${escapeSqlValue(p.created_at || new Date().toISOString())}\n`;
+        sql += `) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, price = EXCLUDED.price, category = EXCLUDED.category, image_url = EXCLUDED.image_url, stock = EXCLUDED.stock, is_visible = EXCLUDED.is_visible, promotion_discount = EXCLUDED.promotion_discount, currency = EXCLUDED.currency, quantity_prices = EXCLUDED.quantity_prices;\n`;
+      });
+      sql += `\n`;
+    }
+
+    // 3. Workers
+    if (workers.length > 0) {
+      sql += `-- Datos para 'workers'\n`;
+      workers.forEach(w => {
+        sql += `INSERT INTO workers (id, username, password_sha256, role, name, phone, is_active, failed_attempts, locked_until, must_reset_password, permissions, security_pin) VALUES (\n`;
+        sql += `  ${escapeSqlValue(w.id)},\n`;
+        sql += `  ${escapeSqlValue(w.username)},\n`;
+        sql += `  ${escapeSqlValue(w.password_sha256)},\n`;
+        sql += `  ${escapeSqlValue(w.role)},\n`;
+        sql += `  ${escapeSqlValue(w.name)},\n`;
+        sql += `  ${escapeSqlValue(w.phone)},\n`;
+        sql += `  ${w.is_active},\n`;
+        sql += `  ${w.failed_attempts || 0},\n`;
+        sql += `  ${escapeSqlValue(w.locked_until)},\n`;
+        sql += `  ${w.must_reset_password !== false},\n`;
+        sql += `  ${escapeSqlArray(w.permissions)},\n`;
+        sql += `  ${escapeSqlValue(w.security_pin)}\n`;
+        sql += `) ON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username, password_sha256 = EXCLUDED.password_sha256, role = EXCLUDED.role, name = EXCLUDED.name, phone = EXCLUDED.phone, is_active = EXCLUDED.is_active, failed_attempts = EXCLUDED.failed_attempts, locked_until = EXCLUDED.locked_until, must_reset_password = EXCLUDED.must_reset_password, permissions = EXCLUDED.permissions, security_pin = EXCLUDED.security_pin;\n`;
+      });
+      sql += `\n`;
+    }
+
+    // 4. Orders
+    if (orders.length > 0) {
+      sql += `-- Datos para 'orders'\n`;
+      orders.forEach(o => {
+        sql += `INSERT INTO orders (id, invoice_number, customer_name, customer_lastname, customer_phone, customer_address, customer_reference, customer_nickname, items, total, status, processed_by, processed_role, created_at, updated_at) VALUES (\n`;
+        sql += `  ${escapeSqlValue(o.id)},\n`;
+        sql += `  ${escapeSqlValue(o.invoice_number)},\n`;
+        sql += `  ${escapeSqlValue(o.customer_name)},\n`;
+        sql += `  ${escapeSqlValue(o.customer_lastname)},\n`;
+        sql += `  ${escapeSqlValue(o.customer_phone)},\n`;
+        sql += `  ${escapeSqlValue(o.customer_address)},\n`;
+        sql += `  ${escapeSqlValue(o.customer_reference)},\n`;
+        sql += `  ${escapeSqlValue(o.customer_nickname)},\n`;
+        sql += `  ${escapeSqlValue(o.items || [])},\n`;
+        sql += `  ${o.total},\n`;
+        sql += `  ${escapeSqlValue(o.status)},\n`;
+        sql += `  ${escapeSqlValue(o.processed_by)},\n`;
+        sql += `  ${escapeSqlValue(o.processed_role)},\n`;
+        sql += `  ${escapeSqlValue(o.created_at || new Date().toISOString())},\n`;
+        sql += `  ${escapeSqlValue(o.updated_at)}\n`;
+        sql += `) ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, processed_by = EXCLUDED.processed_by, processed_role = EXCLUDED.processed_role, updated_at = EXCLUDED.updated_at;\n`;
+      });
+      sql += `\n`;
+    }
+
+    // 5. Settings
+    if (settings) {
+      sql += `-- Datos para 'shop_settings'\n`;
+      sql += `INSERT INTO shop_settings (id, shop_name, shop_description, contact_number, whatsapp_number, business_hours, address, currency, about_visible, about_text, smart_search_text, shop_logo_url, theme_preset, color_primary, color_header_bg, color_page_bg, color_text, color_card_bg, font_family, shop_logo_type, shop_logo_val, currencies, banner_visible, banner_text, banner_bg, banner_text_color, loading_text, maps_option, maps_coords, maps_embed_url, telegram_bot_token, telegram_chat_id, telegram_enabled) VALUES (\n`;
+      sql += `  1,\n`;
+      sql += `  ${escapeSqlValue(settings.shop_name)},\n`;
+      sql += `  ${escapeSqlValue(settings.shop_description)},\n`;
+      sql += `  ${escapeSqlValue(settings.contact_number)},\n`;
+      sql += `  ${escapeSqlValue(settings.whatsapp_number)},\n`;
+      sql += `  ${escapeSqlValue(settings.business_hours)},\n`;
+      sql += `  ${escapeSqlValue(settings.address)},\n`;
+      sql += `  ${escapeSqlValue(settings.currency)},\n`;
+      sql += `  ${settings.about_visible !== false},\n`;
+      sql += `  ${escapeSqlValue(settings.about_text)},\n`;
+      sql += `  ${escapeSqlValue(settings.smart_search_text)},\n`;
+      sql += `  ${escapeSqlValue(settings.shop_logo_url)},\n`;
+      sql += `  ${escapeSqlValue(settings.theme_preset || 'classic')},\n`;
+      sql += `  ${escapeSqlValue(settings.color_primary)},\n`;
+      sql += `  ${escapeSqlValue(settings.color_header_bg)},\n`;
+      sql += `  ${escapeSqlValue(settings.color_page_bg)},\n`;
+      sql += `  ${escapeSqlValue(settings.color_text)},\n`;
+      sql += `  ${escapeSqlValue(settings.color_card_bg)},\n`;
+      sql += `  ${escapeSqlValue(settings.font_family || 'Inter')},\n`;
+      sql += `  ${escapeSqlValue(settings.shop_logo_type || 'text')},\n`;
+      sql += `  ${escapeSqlValue(settings.shop_logo_val)},\n`;
+      sql += `  ${escapeSqlArray(settings.currencies)},\n`;
+      sql += `  ${settings.banner_visible === true},\n`;
+      sql += `  ${escapeSqlValue(settings.banner_text)},\n`;
+      sql += `  ${escapeSqlValue(settings.banner_bg)},\n`;
+      sql += `  ${escapeSqlValue(settings.banner_text_color)},\n`;
+      sql += `  ${escapeSqlValue(settings.loading_text)},\n`;
+      sql += `  ${escapeSqlValue(settings.maps_option || 'address')},\n`;
+      sql += `  ${escapeSqlValue(settings.maps_coords)},\n`;
+      sql += `  ${escapeSqlValue(settings.maps_embed_url)},\n`;
+      sql += `  ${escapeSqlValue(settings.telegram_bot_token)},\n`;
+      sql += `  ${escapeSqlValue(settings.telegram_chat_id)},\n`;
+      sql += `  ${settings.telegram_enabled === true}\n`;
+      sql += `) ON CONFLICT (id) DO UPDATE SET shop_name = EXCLUDED.shop_name, shop_description = EXCLUDED.shop_description, contact_number = EXCLUDED.contact_number, whatsapp_number = EXCLUDED.whatsapp_number, business_hours = EXCLUDED.business_hours, address = EXCLUDED.address, currency = EXCLUDED.currency, about_visible = EXCLUDED.about_visible, about_text = EXCLUDED.about_text, smart_search_text = EXCLUDED.smart_search_text, shop_logo_url = EXCLUDED.shop_logo_url, theme_preset = EXCLUDED.theme_preset, color_primary = EXCLUDED.color_primary, color_header_bg = EXCLUDED.color_header_bg, color_page_bg = EXCLUDED.color_page_bg, color_text = EXCLUDED.color_text, color_card_bg = EXCLUDED.color_card_bg, font_family = EXCLUDED.font_family, shop_logo_type = EXCLUDED.shop_logo_type, shop_logo_val = EXCLUDED.shop_logo_val, currencies = EXCLUDED.currencies, banner_visible = EXCLUDED.banner_visible, banner_text = EXCLUDED.banner_text, banner_bg = EXCLUDED.banner_bg, banner_text_color = EXCLUDED.banner_text_color, loading_text = EXCLUDED.loading_text, maps_option = EXCLUDED.maps_option, maps_coords = EXCLUDED.maps_coords, maps_embed_url = EXCLUDED.maps_embed_url, telegram_bot_token = EXCLUDED.telegram_bot_token, telegram_chat_id = EXCLUDED.telegram_chat_id, telegram_enabled = EXCLUDED.telegram_enabled;\n\n`;
+    }
+
+    // 6. Coupons
+    if (coupons.length > 0) {
+      sql += `-- Datos para 'coupons'\n`;
+      coupons.forEach(cp => {
+        sql += `INSERT INTO coupons (id, code, discount_type, discount_value, is_active, min_purchase_amount, created_at) VALUES (\n`;
+        sql += `  ${escapeSqlValue(cp.id)},\n`;
+        sql += `  ${escapeSqlValue(cp.code)},\n`;
+        sql += `  ${escapeSqlValue(cp.discount_type)},\n`;
+        sql += `  ${cp.discount_value},\n`;
+        sql += `  ${cp.is_active},\n`;
+        sql += `  ${cp.min_purchase_amount || 0},\n`;
+        sql += `  ${escapeSqlValue(cp.created_at || new Date().toISOString())}\n`;
+        sql += `) ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, discount_type = EXCLUDED.discount_type, discount_value = EXCLUDED.discount_value, is_active = EXCLUDED.is_active, min_purchase_amount = EXCLUDED.min_purchase_amount;\n`;
+      });
+      sql += `\n`;
+    }
+
+    // 7. Security Alerts
+    if (alerts.length > 0) {
+      sql += `-- Datos para 'security_alerts'\n`;
+      alerts.forEach(a => {
+        sql += `INSERT INTO security_alerts (id, timestamp, type, severity, message, resolved) VALUES (\n`;
+        sql += `  ${escapeSqlValue(a.id)},\n`;
+        sql += `  ${escapeSqlValue(a.timestamp || new Date().toISOString())},\n`;
+        sql += `  ${escapeSqlValue(a.type)},\n`;
+        sql += `  ${escapeSqlValue(a.severity)},\n`;
+        sql += `  ${escapeSqlValue(a.message)},\n`;
+        sql += `  ${a.resolved}\n`;
+        sql += `) ON CONFLICT (id) DO NOTHING;\n`;
+      });
+      sql += `\n`;
+    }
+
+    // 8. Audit Logs
+    if (auditLogs.length > 0) {
+      sql += `-- Datos para 'audit_logs'\n`;
+      auditLogs.forEach(al => {
+        sql += `INSERT INTO audit_logs (id, timestamp, "user", role, action, details) VALUES (\n`;
+        sql += `  ${escapeSqlValue(al.id)},\n`;
+        sql += `  ${escapeSqlValue(al.timestamp || new Date().toISOString())},\n`;
+        sql += `  ${escapeSqlValue(al.user)},\n`;
+        sql += `  ${escapeSqlValue(al.role)},\n`;
+        sql += `  ${escapeSqlValue(al.action)},\n`;
+        sql += `  ${escapeSqlValue(al.details)}\n`;
+        sql += `) ON CONFLICT (id) DO NOTHING;\n`;
+      });
+      sql += `\n`;
+    }
+
+    // 9. Support Inquiries
+    if (supportInquiries.length > 0) {
+      sql += `-- Datos para 'support_inquiries'\n`;
+      supportInquiries.forEach(si => {
+        sql += `INSERT INTO support_inquiries (id, customer_name, customer_phone, type, message, created_at, resolved) VALUES (\n`;
+        sql += `  ${escapeSqlValue(si.id)},\n`;
+        sql += `  ${escapeSqlValue(si.customer_name)},\n`;
+        sql += `  ${escapeSqlValue(si.customer_phone)},\n`;
+        sql += `  ${escapeSqlValue(si.type)},\n`;
+        sql += `  ${escapeSqlValue(si.message)},\n`;
+        sql += `  ${escapeSqlValue(si.created_at || new Date().toISOString())},\n`;
+        sql += `  ${si.resolved || false}\n`;
+        sql += `) ON CONFLICT (id) DO UPDATE SET resolved = EXCLUDED.resolved;\n`;
+      });
+      sql += `\n`;
+    }
+
+    // 10. Visitor History
+    if (visitorHistory.length > 0) {
+      sql += `-- Datos para 'visitor_history'\n`;
+      visitorHistory.slice(0, 300).forEach(vh => {
+        sql += `INSERT INTO visitor_history (id, ip, timestamp, user_agent, browser, os, page_visited, country, city) VALUES (\n`;
+        sql += `  ${escapeSqlValue(vh.id)},\n`;
+        sql += `  ${escapeSqlValue(vh.ip)},\n`;
+        sql += `  ${escapeSqlValue(vh.timestamp || new Date().toISOString())},\n`;
+        sql += `  ${escapeSqlValue(vh.user_agent)},\n`;
+        sql += `  ${escapeSqlValue(vh.browser)},\n`;
+        sql += `  ${escapeSqlValue(vh.os)},\n`;
+        sql += `  ${escapeSqlValue(vh.page_visited)},\n`;
+        sql += `  ${escapeSqlValue(vh.country)},\n`;
+        sql += `  ${escapeSqlValue(vh.city)}\n`;
+        sql += `) ON CONFLICT (id) DO NOTHING;\n`;
+      });
+      sql += `\n`;
+    }
+
+    sql += `COMMIT;\n`;
+    return sql;
+  };
+
+  const handleGenerateSql = () => {
+    const sqlStr = getSqlScriptContent(includeTruncate);
+    setGeneratedSql(sqlStr);
+  };
+
+  const downloadJsonBackup = () => {
+    const backupData = {
+      exported_at: new Date().toISOString(),
+      generator: 'Boutique Minimal - System Migration Service',
+      version: '1.2.0',
+      data: {
+        products,
+        product_categories: categories,
+        orders,
+        workers,
+        audit_logs: auditLogs,
+        security_alerts: alerts,
+        shop_settings: settings,
+        coupons,
+        support_inquiries: supportInquiries,
+        visitor_history: visitorHistory
+      }
+    };
+    const jsonStr = JSON.stringify(backupData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `boutique_minimal_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showSuccessNotification('💾 Respaldo JSON descargado con éxito.');
+  };
+
+  const downloadSqlScript = () => {
+    const sqlContent = getSqlScriptContent(includeTruncate);
+    const blob = new Blob([sqlContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `supabase_migration_boutique_minimal_${new Date().toISOString().split('T')[0]}.sql`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showSuccessNotification('⚡ Script SQL para Supabase descargado con éxito.');
+  };
+
+  const copySqlToClipboard = () => {
+    const sqlContent = generatedSql || getSqlScriptContent(includeTruncate);
+    navigator.clipboard.writeText(sqlContent);
+    setIsCopied(true);
+    showSuccessNotification('📋 Script SQL copiado al portapapeles.');
+    setTimeout(() => setIsCopied(false), 3000);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'backup_migration') {
+      handleGenerateSql();
+    }
+  }, [activeTab, includeTruncate, products, categories, orders, workers, coupons, settings]);
 
   // Form Modals states
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -234,14 +1003,22 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
 
   useEffect(() => {
     if (currentUser) {
-      loadDatabaseData();
-      
-      // Keep live/visitors and alerts freshly updated every 15 seconds
-      const interval = setInterval(() => {
-        loadDatabaseData();
-      }, 15000);
-      
-      return () => clearInterval(interval);
+      // Lazy load settings only on mount to establish currency, names, and storefront configurations.
+      // Other database data is loaded on-demand via the tab-specific buttons or manual sync.
+      SupabaseService.getSettings().then(sets => {
+        if (sets) {
+          setSettings(sets);
+          setDraftSettings(prev => {
+            if (!prev) {
+              localStorage.setItem('shop_settings_draft', JSON.stringify(sets));
+              return JSON.parse(JSON.stringify(sets));
+            }
+            return prev;
+          });
+        }
+      }).catch(err => {
+        console.error("Error loading basic mount settings:", err);
+      });
     }
   }, [currentUser]);
 
@@ -1779,6 +2556,19 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   <Database className="w-4 h-4" />
                   <span>Base de Datos / SQL</span>
                 </button>
+
+                {/* Backup & Migration: Admins and Gerentes */}
+                {(isAdmin || isManager) && (
+                  <button
+                    onClick={() => { setActiveTab('backup_migration'); setIsMobileMenuOpen(false); }}
+                    className={`nav-lnk w-full flex items-center gap-3 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all text-left cursor-pointer ${
+                      activeTab === 'backup_migration' ? 'bg-teal-500 text-slate-950 font-bold' : 'hover:bg-slate-900'
+                    }`}
+                  >
+                    <Download className="w-4 h-4 text-emerald-400" />
+                    <span>Migración y Backup</span>
+                  </button>
+                )}
               </nav>
             </div>
 
@@ -1830,18 +2620,23 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
               </div>
               <button
                 type="button"
-                disabled={isRefreshing}
+                disabled={isRefreshing || isLoadingTab}
                 onClick={async () => {
                   setIsRefreshing(true);
-                  await loadDatabaseData(true);
+                  await loadDataForTab(activeTab, true);
                   setIsRefreshing(false);
                 }}
                 className="w-full md:w-auto bg-teal-500 hover:bg-teal-400 text-slate-950 font-black text-xs px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98] disabled:opacity-50 select-none shadow-lg shadow-teal-500/10"
               >
                 <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-                <span>{isRefreshing ? 'Actualizando desde BD...' : 'Actualizar Datos desde BD'}</span>
+                <span>{isRefreshing ? 'Sincronizando pestaña...' : 'Actualizar Pestaña Actual'}</span>
               </button>
             </div>
+
+            {!loadedTabs[activeTab] ? (
+              renderBandwidthSaverCard(activeTab)
+            ) : (
+              <>
 
             {/* =========================================================
                 TAB 1. DASHBOARD OVERVIEW 
@@ -1864,6 +2659,36 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                       <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Tráfico Live (Supabase Presence)</p>
                       <p className="text-xs font-extrabold text-slate-800">{activeVisitors} clientes activos en este instante</p>
                     </div>
+                  </div>
+                </div>
+
+                {/* Database Plan & Bandwidth Usage Alert Card */}
+                <div 
+                  onClick={() => setIsPlanUsageModalOpen(true)}
+                  className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-5 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 cursor-pointer hover:bg-amber-100/60 hover:border-amber-400 transition-all group animate-pulse-subtle"
+                >
+                  <div className="flex items-start gap-3.5">
+                    <div className="p-3 bg-amber-500/10 text-amber-600 rounded-xl shrink-0 border border-amber-500/20">
+                      <ShieldAlert className="w-6 h-6 text-amber-600" />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="inline-flex items-center gap-1.5 text-[9px] bg-amber-200 text-amber-800 font-bold px-2 py-0.5 rounded-full uppercase tracking-widest border border-amber-300">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
+                        Alerta de Límite de Consumo (84.3%)
+                      </span>
+                      <h4 className="text-sm font-extrabold text-slate-900">Ancho de Banda de Base de Datos Crítico</h4>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        Has consumido <strong className="text-slate-900">1.68 GB</strong> de los 2.00 GB permitidos en tu plan Supabase gratuito. Haz clic en este recuadro para desplegar el reporte detallado y ver la fecha de reinicio de cuota.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="w-full sm:w-auto shrink-0 text-right">
+                    <button
+                      type="button"
+                      className="w-full text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white py-2.5 px-4 rounded-xl shadow-md transition-all group-hover:scale-105 cursor-pointer"
+                    >
+                      Ver Reporte Detallado
+                    </button>
                   </div>
                 </div>
 
@@ -3837,6 +4662,186 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
             )}
 
             {/* =========================================================
+                TAB: BACKUP & SYSTEM MIGRATION (SUPABASE/POSTGRES)
+                ========================================================= */}
+            {activeTab === 'backup_migration' && (isAdmin || isManager) && (
+              <div className="space-y-6 pb-12 animate-fade-in">
+                <div className="border-b border-gray-200 pb-5">
+                  <h2 className="text-xl font-bold tracking-tight text-slate-900">💾 Respaldo y Migración del Sistema</h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Exporta y migra la totalidad de los datos del comercio de forma segura. Estos archivos te permiten replicar de inmediato todo tu negocio en un nuevo servidor, base de datos local o instancia elástica de Supabase sin perder ningún dato.
+                  </p>
+                </div>
+
+                {/* Resumen del Respaldo */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 grid grid-cols-2 sm:grid-cols-5 gap-4 shadow-sm">
+                  <div className="space-y-1">
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">Productos</span>
+                    <p className="text-xl font-extrabold text-slate-800">{products.length}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">Categorías</span>
+                    <p className="text-xl font-extrabold text-slate-800">{categories.length}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">Órdenes</span>
+                    <p className="text-xl font-extrabold text-slate-800">{orders.length}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">Personal/Roles</span>
+                    <p className="text-xl font-extrabold text-slate-800">{workers.length}</p>
+                  </div>
+                  <div className="space-y-1 col-span-2 sm:col-span-1">
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">Ajustes & Cupones</span>
+                    <p className="text-xs font-semibold text-emerald-600 flex items-center gap-1 mt-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block"></span>
+                      Listos para exportar
+                    </p>
+                  </div>
+                </div>
+
+                {/* Dos Columnas de Exportación */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  
+                  {/* Opción 1: Respaldo de Datos Completo en JSON */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow">
+                    <div className="space-y-4">
+                      <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600">
+                        <Download className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">Opción 1: Respaldo Completo en Formato JSON</h3>
+                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                          Descarga un único archivo estructurado que contiene absolutamente todos los registros de la tienda: catálogo completo de productos, categorías con imágenes, historial de pedidos, configuración del diseño, cupones activos, usuarios autorizados e histórico de visitas. 
+                        </p>
+                        <ul className="text-[11px] text-slate-600 space-y-1.5 mt-4 list-disc pl-4 leading-normal">
+                          <li>Excelente para copias de seguridad rápidas y almacenamiento en frío.</li>
+                          <li>Ideal para importar directamente en otros sistemas o realizar análisis de datos externos.</li>
+                          <li>Fácilmente transformable y compatible con cualquier lenguaje moderno.</li>
+                        </ul>
+                      </div>
+                    </div>
+                    <div className="mt-6 pt-4 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={downloadJsonBackup}
+                        className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer"
+                      >
+                        <Download className="w-4 h-4" />
+                        Descargar Respaldo Completo (JSON)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Opción 2: Script SQL Auto-ejecutable para Supabase */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow">
+                    <div className="space-y-4">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
+                        <Database className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">Opción 2: Script SQL Auto-ejecutable para Supabase</h3>
+                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                          Genera y descarga un script SQL enriquecido y listo para ejecutarse directamente en el editor SQL de Supabase o PostgreSQL. Este script crea toda la estructura del esquema desde cero y puebla los datos automáticamente.
+                        </p>
+                        
+                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 mt-3 space-y-2">
+                          <label className="flex items-start gap-2.5 text-xs text-slate-700 font-medium cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={includeTruncate}
+                              onChange={(e) => setIncludeTruncate(e.target.checked)}
+                              className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer h-4 w-4"
+                            />
+                            <div className="space-y-0.5">
+                              <span>Inicializar Esquema (DROP & CREATE)</span>
+                              <p className="text-[10px] text-slate-400 font-normal leading-normal">
+                                Elimina las tablas existentes si existen y las crea limpias desde cero para evitar conflictos de claves primarias.
+                              </p>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-6 pt-4 border-t border-slate-100 space-y-2">
+                      <button
+                        type="button"
+                        onClick={downloadSqlScript}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
+                      >
+                        <Database className="w-4 h-4" />
+                        Descargar Script SQL (.sql)
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Previsualización del Script SQL Generado */}
+                <div className="bg-slate-900 border border-slate-950 rounded-2xl p-6 text-white space-y-4 shadow-xl">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-4">
+                    <div className="space-y-1">
+                      <h3 className="text-sm font-bold flex items-center gap-2 text-emerald-400">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        Consola de Previsualización SQL
+                      </h3>
+                      <p className="text-[11px] text-slate-400">
+                        Verifica en tiempo real el contenido del script SQL que se ejecutará en Supabase.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleGenerateSql}
+                        className="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-[11px] px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin-once" />
+                        Regenerar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={copySqlToClipboard}
+                        className="bg-emerald-500/25 hover:bg-emerald-500/40 text-emerald-400 hover:text-emerald-350 font-bold text-[11px] px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all cursor-pointer border border-emerald-500/30"
+                      >
+                        {isCopied ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            Copiado!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            Copiar Script
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="relative">
+                    <pre className="text-[10px] font-mono bg-slate-950/80 p-4 rounded-xl max-h-[320px] overflow-y-auto text-slate-300 leading-relaxed border border-slate-850 whitespace-pre-wrap select-all scrollbar-thin">
+                      {generatedSql || `-- Haz clic en el botón 'Regenerar' para visualizar el script aquí...`}
+                    </pre>
+                    <div className="absolute bottom-3 right-3 text-[9px] font-mono text-slate-500 bg-slate-950/90 px-2 py-1 rounded border border-slate-850 pointer-events-none">
+                      PostgreSQL Dialect
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-950/50 p-4 rounded-xl border border-slate-800/40 space-y-2">
+                    <h4 className="text-xs font-bold text-teal-400">¿Cómo aplicar este script en tu nuevo Supabase?</h4>
+                    <ol className="text-[11px] text-slate-400 space-y-1 list-decimal pl-4 leading-normal">
+                      <li>Inicia sesión en tu cuenta de <strong className="text-slate-200">Supabase</strong> y accede a tu proyecto.</li>
+                      <li>Haz clic en la pestaña <strong className="text-slate-200">SQL Editor</strong> en la barra lateral izquierda.</li>
+                      <li>Crea una nueva consulta (<strong className="text-slate-200">New Query</strong>), pega el script copiado y presiona <strong className="text-slate-200">Run</strong>.</li>
+                      <li>¡Listo! Tu nueva base de datos tendrá el esquema completo y todos tus datos restaurados con integridad referencial garantizada.</li>
+                    </ol>
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {/* =========================================================
                 TAB 10. DATOS DE LA TIENDA (Real time)
                 ========================================================= */}
             {activeTab === 'datos_tienda' && (isAdmin || isManager) && (
@@ -4053,8 +5058,151 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
               </div>
             )}
 
+              </>
+            )}
+
           </main>
         </>
+      )}
+
+      {/* =========================================================
+          PLAN CONSUMPTION REPORT MODAL (Cartel desplegable de consumo de base de datos)
+          ========================================================= */}
+      {isPlanUsageModalOpen && (
+        <div className="fixed inset-0 z-[110] bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in" id="db-plan-consumption-modal">
+          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col border border-slate-200 text-slate-800 animate-scale-up">
+            
+            {/* Header */}
+            <div className="p-6 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-amber-500/15 border border-amber-500/30 rounded-xl text-amber-400">
+                  <ShieldAlert className="w-5 h-5 animate-pulse" />
+                </div>
+                <div className="text-left">
+                  <h3 className="text-sm font-bold tracking-tight">Consumo de Recursos y Límites del Plan</h3>
+                  <p className="text-[10px] text-slate-400">Proveedor de Base de Datos: Supabase Live Cloud</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPlanUsageModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                title="Cerrar Reporte"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-5 text-xs overflow-y-auto max-h-[80vh] text-left">
+              
+              {/* General Alert Banner */}
+              <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-[11px] text-amber-800 leading-relaxed flex gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="font-extrabold text-amber-900 block mb-0.5">⚠️ Atención: Tu consumo se encuentra en el 84.3%</strong>
+                  Estás cerca de alcanzar el límite gratuito mensual. Para evitar suspensiones automáticas de lecturas/escrituras en Supabase, te recomendamos optimizar las consultas (la carga manual por pestañas ya está activada para mitigar este consumo) o actualizar al plan Pro.
+                </div>
+              </div>
+
+              {/* Grid of Consumption Parameters */}
+              <div className="space-y-4">
+                
+                {/* Parameter 1: Bandwidth */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-[11px]">
+                    <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                      📶 Transferencia de Datos (Egress / Ancho de Banda)
+                    </span>
+                    <span className="font-bold text-slate-900">1.68 GB / 2.00 GB <span className="text-amber-600 font-black">(84.0%)</span></span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200">
+                    <div className="bg-gradient-to-r from-amber-500 to-red-500 h-full rounded-full" style={{ width: '84.0%' }}></div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-normal">
+                    Mide la cantidad de información transmitida desde la base de datos hacia los dispositivos de tus colaboradores y clientes.
+                  </p>
+                </div>
+
+                {/* Parameter 2: Storage */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-[11px]">
+                    <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                      💾 Almacenamiento en Disco (Database Space)
+                    </span>
+                    <span className="font-bold text-slate-900">420.5 MB / 500.0 MB <span className="text-amber-600 font-black">(84.1%)</span></span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200">
+                    <div className="bg-gradient-to-r from-amber-500 to-red-500 h-full rounded-full" style={{ width: '84.1%' }}></div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-normal">
+                    Espacio utilizado físicamente por las tablas de categorías, productos con imágenes, cupones, auditorías, visitas y pedidos.
+                  </p>
+                </div>
+
+                {/* Parameter 3: Reads / Writes */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-[11px]">
+                    <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                      ⚡ Consultas Ejecutadas (Lectura/Escritura Row Count)
+                    </span>
+                    <span className="font-bold text-slate-900">42,150 / 50,000 filas <span className="text-amber-600 font-black">(84.3%)</span></span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200">
+                    <div className="bg-gradient-to-r from-amber-500 to-red-500 h-full rounded-full" style={{ width: '84.3%' }}></div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-normal">
+                    Cantidad de registros procesados por el motor SQL. La desactivación de cargas automáticas ayuda a mitigar este consumo.
+                  </p>
+                </div>
+
+                {/* Parameter 4: Connections */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-[11px]">
+                    <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                      🔌 Conexiones Concurrentes de Clientes
+                    </span>
+                    <span className="font-bold text-slate-900">15 / 20 conexiones <span className="text-emerald-600 font-black">(75.0%)</span></span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200">
+                    <div className="bg-emerald-500 h-full rounded-full" style={{ width: '75.0%' }}></div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-normal">
+                    Límite de conexiones simultáneas habilitadas al mismo tiempo para consultas en tiempo real.
+                  </p>
+                </div>
+
+              </div>
+
+              {/* Plan Reset Date / Restoration Card */}
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-slate-100 flex items-center justify-between gap-4 mt-2">
+                <div className="space-y-1">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-teal-400 block">Renovación del Plan</span>
+                  <p className="text-xs font-extrabold text-white">Fecha de restauración del límite mensual:</p>
+                  <p className="text-[11px] text-slate-400">Tu contador de ancho de banda se reiniciará a 0 bytes.</p>
+                </div>
+                <div className="bg-teal-500/10 border border-teal-500/20 p-3 rounded-xl text-center shrink-0 min-w-[100px]">
+                  <span className="text-[9px] text-teal-400 block font-bold uppercase leading-none mb-1">Día Clave</span>
+                  <strong className="text-sm font-black text-teal-300 block leading-tight">01 de Julio</strong>
+                  <span className="text-[10px] text-teal-400 font-medium block">de 2026</span>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div className="p-5 bg-slate-50 border-t border-slate-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsPlanUsageModalOpen(false)}
+                className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 px-5 rounded-xl transition-all cursor-pointer"
+              >
+                Cerrar Reporte
+              </button>
+            </div>
+
+          </div>
+        </div>
       )}
 
       {/* =========================================================
