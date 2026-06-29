@@ -965,34 +965,6 @@ export class SupabaseService {
       const localProducts = getLocalStorageItem<Product[]>('shop_products', fallbackProducts);
       const safeLocalProducts = Array.isArray(localProducts) ? localProducts : fallbackProducts;
 
-      // Auto-seed default products in real mode if table is empty
-      if (fetchedData.length === 0 && safeLocalProducts.length > 0) {
-        try {
-          const insertData = safeLocalProducts.map(p => ({
-            id: p.id,
-            name: p.name,
-            description: p.description || '',
-            price: p.price,
-            category: p.category,
-            image_url: p.image_url || '',
-            stock: p.stock ?? 10,
-            is_visible: p.is_visible !== false,
-            promotion_discount: p.promotion_discount || 0,
-            currency: p.currency || 'CUP',
-            quantity_prices: p.quantity_prices || [],
-            variants: p.variants || [],
-            gallery_images: p.gallery_images || []
-          }));
-          await client.from('products').insert(insertData);
-          const { data: refetched } = await client.from('products').select('*').order('name');
-          if (refetched && refetched.length > 0) {
-            fetchedData = refetched;
-          }
-        } catch (e) {
-          console.error('Error auto-seeding products into Supabase:', e);
-        }
-      }
-
       const merged = fetchedData.map((dbProd: any) => {
         const localProd = safeLocalProducts.find(lp => lp.id === dbProd.id || lp.name === dbProd.name);
         return {
@@ -1224,30 +1196,6 @@ export class SupabaseService {
       }
       
       let fetchedWorkers = data || [];
-      if (fetchedWorkers.length === 0) {
-        try {
-          const insertWorkers = (DEFAULT_WORKERS as any[]).map(w => ({
-            id: w.id,
-            username: w.username.toLowerCase(),
-            password_sha256: w.password_sha256,
-            role: w.role,
-            name: w.name,
-            phone: w.phone || '',
-            is_active: w.is_active !== false,
-            failed_attempts: w.failed_attempts || 0,
-            must_reset_password: w.must_reset_password !== false,
-            permissions: w.permissions || [],
-            security_pin: w.security_pin || ''
-          }));
-          await client.from('workers').insert(insertWorkers);
-          const { data: refetched } = await client.from('workers').select('*').order('name');
-          if (refetched && refetched.length > 0) {
-            fetchedWorkers = refetched;
-          }
-        } catch (e) {
-          console.error('Error auto-seeding workers into Supabase:', e);
-        }
-      }
       this.setCachedData('workers', fetchedWorkers);
       return fetchedWorkers;
     } catch (e) {
@@ -1627,47 +1575,6 @@ export class SupabaseService {
         .maybeSingle();
       if (error || !data) {
         const local = getLocalStorageItem('shop_settings', DEFAULT_SETTINGS);
-        if (!error && !data) {
-          try {
-            await client.from('shop_settings').insert({
-              id: 'singleton',
-              shop_name: local.shop_name,
-              shop_description: local.shop_description,
-              contact_number: local.contact_number,
-              whatsapp_number: local.whatsapp_number,
-              business_hours: local.business_hours,
-              address: local.address,
-              currency: local.currency,
-              about_visible: local.about_visible,
-              about_text: local.about_text,
-              smart_search_text: local.smart_search_text,
-              shop_logo_url: local.shop_logo_url || '',
-              theme_preset: local.theme_preset || 'classic',
-              color_primary: local.color_primary || '#0f172a',
-              color_header_bg: local.color_header_bg || '#ffffff',
-              color_page_bg: local.color_page_bg || '#F8F9FA',
-              color_text: local.color_text || '#1e293b',
-              color_card_bg: local.color_card_bg || '#ffffff',
-              font_family: local.font_family || 'Inter',
-              shop_logo_type: local.shop_logo_type || 'text',
-              shop_logo_val: local.shop_logo_val || 'M',
-              currencies: local.currencies || ['CUP', 'USD', 'EUR', 'MLC'],
-              banner_visible: local.banner_visible || false,
-              banner_text: local.banner_text || '',
-              banner_bg: local.banner_bg || '#1e293b',
-              banner_text_color: local.banner_text_color || '#ffffff',
-              loading_text: local.loading_text || 'Actualizando, por favor espere...',
-              maps_option: local.maps_option || 'address',
-              maps_coords: local.maps_coords || '',
-              maps_embed_url: local.maps_embed_url || '',
-              telegram_bot_token: local.telegram_bot_token || '',
-              telegram_chat_id: local.telegram_chat_id || '',
-              telegram_enabled: local.telegram_enabled || false
-            });
-          } catch (e) {
-            console.error('Error auto-seeding shop_settings into Supabase:', e);
-          }
-        }
         this.setCachedData('shop_settings', local);
         return local;
       }

@@ -51,11 +51,80 @@ create table if not exists shop_settings (
 );
 
 -- Insertar configuración inicial por defecto si no existe
-insert into shop_settings (id, shop_name, shop_description)
-values ('singleton', 'Cubanos en Miami', 'La experiencia de compra más rápida de la web.')
+insert into shop_settings (
+  id, shop_name, shop_description, contact_number, whatsapp_number, business_hours, address, currency, 
+  about_visible, about_text, smart_search_text, shop_logo_url, theme_preset, color_primary, color_header_bg, 
+  color_page_bg, color_text, color_card_bg, font_family, shop_logo_type, shop_logo_val, currencies, 
+  banner_visible, banner_text, banner_bg, banner_text_color, loading_text, maps_option, maps_coords, 
+  maps_embed_url, telegram_bot_token, telegram_chat_id, telegram_enabled
+) values (
+  'singleton', 
+  'Cubanos en Miami', 
+  'La experiencia de compra más rápida de la web.', 
+  '+1 786 294 2257', 
+  '17862942257', 
+  'Lunes a Sábado: 9:00 AM - 5:00 PM', 
+  '16335 nw 48th ave Miami Gardens FL 33016', 
+  '$', 
+  true, 
+  'La experiencia de compra más rápida de la web.', 
+  'Búsqueda Inteligente', 
+  '', 
+  'classic', 
+  '#0f172a', 
+  '#ffffff', 
+  '#F8F9FA', 
+  '#1e293b', 
+  '#ffffff', 
+  'Inter', 
+  'text', 
+  'M', 
+  array['CUP', 'USD', 'EUR', 'MLC']::text[], 
+  false, 
+  '', 
+  '#1e293b', 
+  '#ffffff', 
+  'Actualizando, por favor espere...', 
+  'address', 
+  '', 
+  '', 
+  '', 
+  '', 
+  false
+)
 on conflict (id) do update set
   shop_name = excluded.shop_name,
-  shop_description = excluded.shop_description;
+  shop_description = excluded.shop_description,
+  contact_number = excluded.contact_number,
+  whatsapp_number = excluded.whatsapp_number,
+  business_hours = excluded.business_hours,
+  address = excluded.address,
+  currency = excluded.currency,
+  about_visible = excluded.about_visible,
+  about_text = excluded.about_text,
+  smart_search_text = excluded.smart_search_text,
+  shop_logo_url = excluded.shop_logo_url,
+  theme_preset = excluded.theme_preset,
+  color_primary = excluded.color_primary,
+  color_header_bg = excluded.color_header_bg,
+  color_page_bg = excluded.color_page_bg,
+  color_text = excluded.color_text,
+  color_card_bg = excluded.color_card_bg,
+  font_family = excluded.font_family,
+  shop_logo_type = excluded.shop_logo_type,
+  shop_logo_val = excluded.shop_logo_val,
+  currencies = excluded.currencies,
+  banner_visible = excluded.banner_visible,
+  banner_text = excluded.banner_text,
+  banner_bg = excluded.banner_bg,
+  banner_text_color = excluded.banner_text_color,
+  loading_text = excluded.loading_text,
+  maps_option = excluded.maps_option,
+  maps_coords = excluded.maps_coords,
+  maps_embed_url = excluded.maps_embed_url,
+  telegram_bot_token = excluded.telegram_bot_token,
+  telegram_chat_id = excluded.telegram_chat_id,
+  telegram_enabled = excluded.telegram_enabled;
 
 -- 3. TABLA DE PRODUCTOS
 create table if not exists products (
@@ -132,13 +201,19 @@ alter table shop_settings add column if not exists store_url varchar default '';
 -- Admin: admin o Admin123!
 -- Gerente: Gerente123!
 -- Empleado: Empleado123!
-insert into workers (username, password_sha256, role, name, phone, is_active)
+insert into workers (id, username, password_sha256, role, name, phone, is_active, must_reset_password, permissions)
 values 
-  ('admin', '0a5bc3e342432f1bad92ffd51b785343ec72906cdba6a26131060b008e786656', 'admin', 'Sofía Rodríguez (Admin)', '+506 7000-1111', true),
-  ('gerente', '68e059127789ea920ad39f186b60eaa3acfef029a4c8808d2d271e500c992d4a', 'gerente', 'Carlos Mendoza (Gerente)', '+506 7000-2222', true),
-  ('empleado', 'a5eb10313b9116ce94dc36afd5b653bf03fee85101278b1a0f044ebc21a98a93', 'empleado', 'Mateo Gómez (Empleado)', '+506 7000-3333', true)
-on conflict (username) do update 
-set password_sha256 = excluded.password_sha256;
+  ('45b4e7a0-7eb4-45cd-b00f-fffe0976dc6d'::uuid, 'admin', '0a5bc3e342432f1bad92ffd51b785343ec72906cdba6a26131060b008e786656', 'admin', 'Sofía Rodríguez (Admin)', '+506 7000-1111', true, false, array['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']::text[]),
+  ('63c1a697-2131-4814-a5a0-70b8bffa419b'::uuid, 'gerente', '68e059127789ea920ad39f186b60eaa3acfef029a4c8808d2d271e500c992d4a', 'gerente', 'Carlos Mendoza (Gerente)', '+506 7000-2222', true, true, array['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']::text[]),
+  ('90079414-1cf1-4286-9a2a-547fa466370e'::uuid, 'empleado', 'a5eb10313b9116ce94dc36afd5b653bf03fee85101278b1a0f044ebc21a98a93', 'empleado', 'Mateo Gómez (Empleado)', '+506 7000-3333', true, true, array['ver_pedidos', 'ver_inventario']::text[])
+on conflict (username) do update set
+  password_sha256 = excluded.password_sha256,
+  role = excluded.role,
+  name = excluded.name,
+  phone = excluded.phone,
+  is_active = excluded.is_active,
+  must_reset_password = excluded.must_reset_password,
+  permissions = excluded.permissions;
 
 -- 5. TABLA DE PEDIDOS / FACTURAS
 create table if not exists orders (
@@ -427,6 +502,27 @@ on conflict (id) do update set
   promotion_discount = excluded.promotion_discount,
   currency = excluded.currency,
   quantity_prices = excluded.quantity_prices;
+
+-- Inserción de categorías por defecto si no existen
+insert into product_categories (id, name, image_path) values
+('cat-1', 'Comida', null),
+('cat-2', 'Equipos Electrónicos', null),
+('cat-3', 'Aseo Personal', null),
+('cat-4', 'Perfumería', null)
+on conflict (id) do update set
+  name = excluded.name,
+  image_path = excluded.image_path;
+
+-- Inserción de cupones por defecto si no existen
+insert into coupons (id, code, discount_type, discount_value, is_active, min_purchase_amount) values
+('c8f35bc9-38a2-4b86-9d93-19b182a52dd8'::uuid, 'BIENVENIDO10', 'percent', 10.00, true, 0.00),
+('c8f35bc9-38a2-4b86-9d93-19b182a52dd9'::uuid, 'PROMO20', 'percent', 20.00, true, 0.00),
+('c8f35bc9-38a2-4b86-9d93-19b182a52dda'::uuid, 'DESCON99', 'fixed', 99.00, true, 0.00)
+on conflict (code) do update set
+  discount_type = excluded.discount_type,
+  discount_value = excluded.discount_value,
+  is_active = excluded.is_active,
+  min_purchase_amount = excluded.min_purchase_amount;
 `;
 
 export const SUPABASE_UPDATE_SQL_SCHEMA = `-- =========================================================
@@ -477,11 +573,80 @@ create table if not exists shop_settings (
 );
 
 -- Insertar configuración inicial por defecto si no existe
-insert into shop_settings (id, shop_name, shop_description)
-values ('singleton', 'Cubanos en Miami', 'La experiencia de compra más rápida de la web.')
+insert into shop_settings (
+  id, shop_name, shop_description, contact_number, whatsapp_number, business_hours, address, currency, 
+  about_visible, about_text, smart_search_text, shop_logo_url, theme_preset, color_primary, color_header_bg, 
+  color_page_bg, color_text, color_card_bg, font_family, shop_logo_type, shop_logo_val, currencies, 
+  banner_visible, banner_text, banner_bg, banner_text_color, loading_text, maps_option, maps_coords, 
+  maps_embed_url, telegram_bot_token, telegram_chat_id, telegram_enabled
+) values (
+  'singleton', 
+  'Cubanos en Miami', 
+  'La experiencia de compra más rápida de la web.', 
+  '+1 786 294 2257', 
+  '17862942257', 
+  'Lunes a Sábado: 9:00 AM - 5:00 PM', 
+  '16335 nw 48th ave Miami Gardens FL 33016', 
+  '$', 
+  true, 
+  'La experiencia de compra más rápida de la web.', 
+  'Búsqueda Inteligente', 
+  '', 
+  'classic', 
+  '#0f172a', 
+  '#ffffff', 
+  '#F8F9FA', 
+  '#1e293b', 
+  '#ffffff', 
+  'Inter', 
+  'text', 
+  'M', 
+  array['CUP', 'USD', 'EUR', 'MLC']::text[], 
+  false, 
+  '', 
+  '#1e293b', 
+  '#ffffff', 
+  'Actualizando, por favor espere...', 
+  'address', 
+  '', 
+  '', 
+  '', 
+  '', 
+  false
+)
 on conflict (id) do update set
   shop_name = excluded.shop_name,
-  shop_description = excluded.shop_description;
+  shop_description = excluded.shop_description,
+  contact_number = excluded.contact_number,
+  whatsapp_number = excluded.whatsapp_number,
+  business_hours = excluded.business_hours,
+  address = excluded.address,
+  currency = excluded.currency,
+  about_visible = excluded.about_visible,
+  about_text = excluded.about_text,
+  smart_search_text = excluded.smart_search_text,
+  shop_logo_url = excluded.shop_logo_url,
+  theme_preset = excluded.theme_preset,
+  color_primary = excluded.color_primary,
+  color_header_bg = excluded.color_header_bg,
+  color_page_bg = excluded.color_page_bg,
+  color_text = excluded.color_text,
+  color_card_bg = excluded.color_card_bg,
+  font_family = excluded.font_family,
+  shop_logo_type = excluded.shop_logo_type,
+  shop_logo_val = excluded.shop_logo_val,
+  currencies = excluded.currencies,
+  banner_visible = excluded.banner_visible,
+  banner_text = excluded.banner_text,
+  banner_bg = excluded.banner_bg,
+  banner_text_color = excluded.banner_text_color,
+  loading_text = excluded.loading_text,
+  maps_option = excluded.maps_option,
+  maps_coords = excluded.maps_coords,
+  maps_embed_url = excluded.maps_embed_url,
+  telegram_bot_token = excluded.telegram_bot_token,
+  telegram_chat_id = excluded.telegram_chat_id,
+  telegram_enabled = excluded.telegram_enabled;
 
 -- 3. TABLA DE PRODUCTOS SI NO EXISTE
 create table if not exists products (
@@ -521,13 +686,19 @@ create table if not exists workers (
 -- Admin: admin o Admin123!
 -- Gerente: Gerente123!
 -- Empleado: Empleado123!
-insert into workers (username, password_sha256, role, name, phone, is_active)
+insert into workers (id, username, password_sha256, role, name, phone, is_active, must_reset_password, permissions)
 values 
-  ('admin', '0a5bc3e342432f1bad92ffd51b785343ec72906cdba6a26131060b008e786656', 'admin', 'Sofía Rodríguez (Admin)', '+506 7000-1111', true),
-  ('gerente', '68e059127789ea920ad39f186b60eaa3acfef029a4c8808d2d271e500c992d4a', 'gerente', 'Carlos Mendoza (Gerente)', '+506 7000-2222', true),
-  ('empleado', 'a5eb10313b9116ce94dc36afd5b653bf03fee85101278b1a0f044ebc21a98a93', 'empleado', 'Mateo Gómez (Empleado)', '+506 7000-3333', true)
-on conflict (username) do update 
-set password_sha256 = excluded.password_sha256;
+  ('45b4e7a0-7eb4-45cd-b00f-fffe0976dc6d'::uuid, 'admin', '0a5bc3e342432f1bad92ffd51b785343ec72906cdba6a26131060b008e786656', 'admin', 'Sofía Rodríguez (Admin)', '+506 7000-1111', true, false, array['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']::text[]),
+  ('63c1a697-2131-4814-a5a0-70b8bffa419b'::uuid, 'gerente', '68e059127789ea920ad39f186b60eaa3acfef029a4c8808d2d271e500c992d4a', 'gerente', 'Carlos Mendoza (Gerente)', '+506 7000-2222', true, true, array['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']::text[]),
+  ('90079414-1cf1-4286-9a2a-547fa466370e'::uuid, 'empleado', 'a5eb10313b9116ce94dc36afd5b653bf03fee85101278b1a0f044ebc21a98a93', 'empleado', 'Mateo Gómez (Empleado)', '+506 7000-3333', true, true, array['ver_pedidos', 'ver_inventario']::text[])
+on conflict (username) do update set
+  password_sha256 = excluded.password_sha256,
+  role = excluded.role,
+  name = excluded.name,
+  phone = excluded.phone,
+  is_active = excluded.is_active,
+  must_reset_password = excluded.must_reset_password,
+  permissions = excluded.permissions;
 
 -- 5. TABLA DE PEDIDOS / FACTURAS SI NO EXISTE
 create table if not exists orders (
@@ -858,4 +1029,25 @@ on conflict (id) do update set
   promotion_discount = excluded.promotion_discount,
   currency = excluded.currency,
   quantity_prices = excluded.quantity_prices;
+
+-- Inserción de categorías por defecto si no existen
+insert into product_categories (id, name, image_path) values
+('cat-1', 'Comida', null),
+('cat-2', 'Equipos Electrónicos', null),
+('cat-3', 'Aseo Personal', null),
+('cat-4', 'Perfumería', null)
+on conflict (id) do update set
+  name = excluded.name,
+  image_path = excluded.image_path;
+
+-- Inserción de cupones por defecto si no existen
+insert into coupons (id, code, discount_type, discount_value, is_active, min_purchase_amount) values
+('c8f35bc9-38a2-4b86-9d93-19b182a52dd8'::uuid, 'BIENVENIDO10', 'percent', 10.00, true, 0.00),
+('c8f35bc9-38a2-4b86-9d93-19b182a52dd9'::uuid, 'PROMO20', 'percent', 20.00, true, 0.00),
+('c8f35bc9-38a2-4b86-9d93-19b182a52dda'::uuid, 'DESCON99', 'fixed', 99.00, true, 0.00)
+on conflict (code) do update set
+  discount_type = excluded.discount_type,
+  discount_value = excluded.discount_value,
+  is_active = excluded.is_active,
+  min_purchase_amount = excluded.min_purchase_amount;
 `;
