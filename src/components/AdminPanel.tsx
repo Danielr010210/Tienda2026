@@ -729,10 +729,15 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       return `ARRAY[${arr.map(x => `'${x.toString().replace(/'/g, "''")}'`).join(', ')}]::TEXT[]`;
     };
 
+    const finalCategories = categories.length > 0 ? categories : SupabaseService.getDefaultCategories();
+    const finalProducts = products.length > 0 ? products : SupabaseService.getDefaultProducts();
+    const finalWorkers = workers.length > 0 ? workers : SupabaseService.getDefaultWorkers();
+    const finalSettings = settings || SupabaseService.getDefaultSettings();
+
     // 1. Categories
-    if (categories.length > 0) {
+    if (finalCategories.length > 0) {
       sql += `-- Datos para 'product_categories'\n`;
-      categories.forEach(c => {
+      finalCategories.forEach(c => {
         sql += `INSERT INTO product_categories (id, name, image_path, created_at) VALUES (\n`;
         sql += `  ${escapeSqlValue(c.id)},\n`;
         sql += `  ${escapeSqlValue(c.name)},\n`;
@@ -744,9 +749,9 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     }
 
     // 2. Products
-    if (products.length > 0) {
+    if (finalProducts.length > 0) {
       sql += `-- Datos para 'products'\n`;
-      products.forEach(p => {
+      finalProducts.forEach(p => {
         sql += `INSERT INTO products (id, name, description, price, category, image_url, stock, is_visible, promotion_discount, currency, quantity_prices, variants, gallery_images, created_at) VALUES (\n`;
         sql += `  ${escapeSqlValue(p.id)},\n`;
         sql += `  ${escapeSqlValue(p.name)},\n`;
@@ -768,9 +773,9 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     }
 
     // 3. Workers
-    if (workers.length > 0) {
+    if (finalWorkers.length > 0) {
       sql += `-- Datos para 'workers'\n`;
-      workers.forEach(w => {
+      finalWorkers.forEach(w => {
         sql += `INSERT INTO workers (id, username, password_sha256, role, name, phone, is_active, failed_attempts, locked_until, must_reset_password, permissions, security_pin) VALUES (\n`;
         sql += `  ${escapeSqlValue(w.id)},\n`;
         sql += `  ${escapeSqlValue(w.username)},\n`;
@@ -815,42 +820,42 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     }
 
     // 5. Settings
-    if (settings) {
+    if (finalSettings) {
       sql += `-- Datos para 'shop_settings'\n`;
       sql += `INSERT INTO shop_settings (id, shop_name, shop_description, contact_number, whatsapp_number, business_hours, address, currency, about_visible, about_text, smart_search_text, shop_logo_url, theme_preset, color_primary, color_header_bg, color_page_bg, color_text, color_card_bg, font_family, shop_logo_type, shop_logo_val, currencies, banner_visible, banner_text, banner_bg, banner_text_color, loading_text, maps_option, maps_coords, maps_embed_url, telegram_bot_token, telegram_chat_id, telegram_enabled) VALUES (\n`;
       sql += `  'singleton',\n`;
-      sql += `  ${escapeSqlValue(settings.shop_name)},\n`;
-      sql += `  ${escapeSqlValue(settings.shop_description)},\n`;
-      sql += `  ${escapeSqlValue(settings.contact_number)},\n`;
-      sql += `  ${escapeSqlValue(settings.whatsapp_number)},\n`;
-      sql += `  ${escapeSqlValue(settings.business_hours)},\n`;
-      sql += `  ${escapeSqlValue(settings.address)},\n`;
-      sql += `  ${escapeSqlValue(settings.currency)},\n`;
-      sql += `  ${escapeSqlValue(settings.about_visible !== false)},\n`;
-      sql += `  ${escapeSqlValue(settings.about_text)},\n`;
-      sql += `  ${escapeSqlValue(settings.smart_search_text)},\n`;
-      sql += `  ${escapeSqlValue(settings.shop_logo_url)},\n`;
-      sql += `  ${escapeSqlValue(settings.theme_preset || 'classic')},\n`;
-      sql += `  ${escapeSqlValue(settings.color_primary)},\n`;
-      sql += `  ${escapeSqlValue(settings.color_header_bg)},\n`;
-      sql += `  ${escapeSqlValue(settings.color_page_bg)},\n`;
-      sql += `  ${escapeSqlValue(settings.color_text)},\n`;
-      sql += `  ${escapeSqlValue(settings.color_card_bg)},\n`;
-      sql += `  ${escapeSqlValue(settings.font_family || 'Inter')},\n`;
-      sql += `  ${escapeSqlValue(settings.shop_logo_type || 'text')},\n`;
-      sql += `  ${escapeSqlValue(settings.shop_logo_val)},\n`;
-      sql += `  ${escapeSqlArray(settings.currencies)},\n`;
-      sql += `  ${escapeSqlValue(settings.banner_visible === true)},\n`;
-      sql += `  ${escapeSqlValue(settings.banner_text)},\n`;
-      sql += `  ${escapeSqlValue(settings.banner_bg)},\n`;
-      sql += `  ${escapeSqlValue(settings.banner_text_color)},\n`;
-      sql += `  ${escapeSqlValue(settings.loading_text)},\n`;
-      sql += `  ${escapeSqlValue(settings.maps_option || 'address')},\n`;
-      sql += `  ${escapeSqlValue(settings.maps_coords)},\n`;
-      sql += `  ${escapeSqlValue(settings.maps_embed_url)},\n`;
-      sql += `  ${escapeSqlValue(settings.telegram_bot_token)},\n`;
-      sql += `  ${escapeSqlValue(settings.telegram_chat_id)},\n`;
-      sql += `  ${escapeSqlValue(settings.telegram_enabled === true)}\n`;
+      sql += `  ${escapeSqlValue(finalSettings.shop_name)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.shop_description)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.contact_number)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.whatsapp_number)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.business_hours)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.address)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.currency)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.about_visible !== false)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.about_text)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.smart_search_text)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.shop_logo_url)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.theme_preset || 'classic')},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.color_primary)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.color_header_bg)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.color_page_bg)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.color_text)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.color_card_bg)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.font_family || 'Inter')},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.shop_logo_type || 'text')},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.shop_logo_val)},\n`;
+      sql += `  ${escapeSqlArray(finalSettings.currencies)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.banner_visible === true)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.banner_text)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.banner_bg)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.banner_text_color)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.loading_text)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.maps_option || 'address')},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.maps_coords)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.maps_embed_url)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.telegram_bot_token)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.telegram_chat_id)},\n`;
+      sql += `  ${escapeSqlValue(finalSettings.telegram_enabled === true)}\n`;
       sql += `) ON CONFLICT (id) DO UPDATE SET shop_name = EXCLUDED.shop_name, shop_description = EXCLUDED.shop_description, contact_number = EXCLUDED.contact_number, whatsapp_number = EXCLUDED.whatsapp_number, business_hours = EXCLUDED.business_hours, address = EXCLUDED.address, currency = EXCLUDED.currency, about_visible = EXCLUDED.about_visible, about_text = EXCLUDED.about_text, smart_search_text = EXCLUDED.smart_search_text, shop_logo_url = EXCLUDED.shop_logo_url, theme_preset = EXCLUDED.theme_preset, color_primary = EXCLUDED.color_primary, color_header_bg = EXCLUDED.color_header_bg, color_page_bg = EXCLUDED.color_page_bg, color_text = EXCLUDED.color_text, color_card_bg = EXCLUDED.color_card_bg, font_family = EXCLUDED.font_family, shop_logo_type = EXCLUDED.shop_logo_type, shop_logo_val = EXCLUDED.shop_logo_val, currencies = EXCLUDED.currencies, banner_visible = EXCLUDED.banner_visible, banner_text = EXCLUDED.banner_text, banner_bg = EXCLUDED.banner_bg, banner_text_color = EXCLUDED.banner_text_color, loading_text = EXCLUDED.loading_text, maps_option = EXCLUDED.maps_option, maps_coords = EXCLUDED.maps_coords, maps_embed_url = EXCLUDED.maps_embed_url, telegram_bot_token = EXCLUDED.telegram_bot_token, telegram_chat_id = EXCLUDED.telegram_chat_id, telegram_enabled = EXCLUDED.telegram_enabled;\n\n`;
     }
 
