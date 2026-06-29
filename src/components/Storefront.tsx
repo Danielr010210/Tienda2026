@@ -280,44 +280,69 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   // Fetch shop data on mount/refresher and poll every 15 seconds
   useEffect(() => {
     async function loadData(silent = false) {
-      if (!silent) setLoading(true);
+      // Check if we already have local storage cached data to enable fast rendering without spinner
+      const hasLocalCache = localStorage.getItem('shop_products') !== null || localStorage.getItem('shop_settings') !== null;
+      
+      if (!silent && !hasLocalCache) {
+        setLoading(true);
+      }
+      
       try {
-        // Run database connection check
+        // Step 1: Immediately load from cache (instant 0ms)
+        const cachedProds = await SupabaseService.getProducts(false);
+        if (cachedProds && cachedProds.length > 0) {
+          setProducts(cachedProds);
+        }
+
+        const cachedCats = await SupabaseService.getCategories(false);
+        if (cachedCats && cachedCats.length > 0) {
+          setDbCategories(cachedCats);
+        }
+
+        const cachedSettings = previewSettings || await SupabaseService.getSettings(false);
+        if (cachedSettings) {
+          setSettings(cachedSettings);
+        }
+
+        // Step 2: Query active database connection in background
         const connected = await SupabaseService.checkConnection();
         setIsDbConnected(connected);
         
-        if (!connected) {
-          if (!silent) setLoading(false);
-          return;
-        }
+        // If the database is connected, fetch the absolute latest records from the remote tables
+        if (connected) {
+          const rawProds = await SupabaseService.getProducts(true);
+          setProducts(rawProds);
 
-        const rawProds = await SupabaseService.getProducts();
-        setProducts(rawProds);
+          const rawCats = await SupabaseService.getCategories(true);
+          setDbCategories(rawCats);
 
-        // Fetch categories directly from the database table
-        const rawCats = await SupabaseService.getCategories();
-        setDbCategories(rawCats);
-
-        if (previewSettings) {
-          setSettings(previewSettings);
-        } else {
-          const rawSettings = await SupabaseService.getSettings();
-          setSettings(rawSettings);
+          if (previewSettings) {
+            setSettings(previewSettings);
+          } else {
+            const rawSettings = await SupabaseService.getSettings(true);
+            setSettings(rawSettings);
+          }
         }
       } catch (e) {
         console.error('Error fetching storefront data:', e);
-        if (!silent) setIsDbConnected(false);
+        // Do not flag database as disconnected unless we have absolutely no cache
+        const cachedProds = await SupabaseService.getProducts(false);
+        if (!cachedProds || cachedProds.length === 0) {
+          if (!silent) setIsDbConnected(false);
+        }
       } finally {
         if (!silent) setLoading(false);
       }
     }
 
-    loadData(false);
+    // Call with silent=true if we already have some products in component state to make navigation instant
+    const hasComponentData = products.length > 0 && settings !== null;
+    loadData(hasComponentData);
 
-    // Dynamic high-frequency background synchronization (polling)
+    // Dynamic background synchronization (polling)
     const interval = setInterval(() => {
       loadData(true);
-    }, 15000); // 15 seconds silent autosync
+    }, 15000); // 15 seconds silent background sync
 
     return () => clearInterval(interval);
   }, [productsRefresher, previewSettings]);
@@ -433,7 +458,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   // Filter: Keep only categories that have at least one visible product assigned to them
   const activeProductCategories = new Set(
     products
-      .filter(p => p.is_visible && p.category)
+      .filter(p => p.is_visible !== false && p.category)
       .map(p => p.category.toLowerCase().trim())
   );
 
@@ -447,7 +472,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   });
 
   // Add any product categories that might wrap around the database categories (or not in db but assigned to visible products)
-  products.filter(p => p.is_visible).forEach(p => {
+  products.filter(p => p.is_visible !== false).forEach(p => {
     const normalized = p.category ? p.category.trim() : '';
     if (normalized) {
       // Find case-insensitive match
@@ -496,7 +521,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   const filteredProducts = products
     .filter(p => {
       // 1. Must be visible to customers
-      if (!p.is_visible) return false;
+      if (p.is_visible === false) return false;
       
       // 2. Category match
       const matchesCategory = selectedCategory === 'General' || (p.category && p.category.toLowerCase() === selectedCategory.toLowerCase());
@@ -615,7 +640,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
     const excludeIds = new Set<string>();
     if (selectedProd) excludeIds.add(selectedProd.id);
     
-    let candidates = products.filter(p => p.is_visible && !excludeIds.has(p.id));
+    let candidates = products.filter(p => p.is_visible !== false && !excludeIds.has(p.id));
 
     if (selectedProd) {
       const sameCategory = candidates.filter(p => p.category === selectedProd.category);
@@ -891,7 +916,9 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   };
 
   // Unified Loading and Database Connection active check screen
-  if (loading || !settings || !isDbConnected) {
+  // Show blocking loading/offline screen only if we don't have basic settings/products loaded yet, OR if we are completely unable to connect on first load.
+  const hasLoadedData = settings !== null && products.length > 0;
+  if ((loading && !hasLoadedData) || !settings || (!isDbConnected && !hasLoadedData)) {
     return (
       <div 
         className="min-h-screen bg-white text-slate-800 flex flex-col items-center justify-center p-6 text-center font-sans select-none animate-fade-in" 
@@ -962,6 +989,13 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
         <div id="net-offline-banner" className="bg-amber-500 text-white text-[12px] py-1.5 px-4 text-center font-medium tracking-tight flex items-center justify-center gap-2 transition-all">
           <WifiOff className="w-3.5 h-3.5 animate-bounce" />
           <span>Trabajando en modo fuera de servicio; tu compra se guardará localmente.</span>
+        </div>
+      )}
+
+      {!isDbConnected && (
+        <div id="db-offline-banner" className="bg-red-600 text-white text-[12px] py-1.5 px-4 text-center font-medium tracking-tight flex items-center justify-center gap-2 transition-all">
+          <WifiOff className="w-3.5 h-3.5" />
+          <span>No hay conexión con la base de datos Supabase; navegando en Modo de Respaldo Local.</span>
         </div>
       )}
 
@@ -1109,7 +1143,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
 
             {/* Total count of matches indicator */}
             <div className="text-xs text-slate-400 font-medium md:text-right">
-              Mostrando <strong className="text-slate-700">{filteredProducts.length}</strong> de <strong className="text-slate-700">{products.filter(p => p.is_visible).length}</strong> productos
+              Mostrando <strong className="text-slate-700">{filteredProducts.length}</strong> de <strong className="text-slate-700">{products.filter(p => p.is_visible !== false).length}</strong> productos
             </div>
           </div>
 

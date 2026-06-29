@@ -147,6 +147,10 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   const [isTablesStatusModalOpen, setIsTablesStatusModalOpen] = useState(false);
   const [tablesStatusList, setTablesStatusList] = useState<{ name: string; exists: boolean; error?: string }[]>([]);
   const [checkingTables, setCheckingTables] = useState(false);
+  
+  // SQL script viewer states (accessible from authentication login panel)
+  const [isSqlViewOpen, setIsSqlViewOpen] = useState(false);
+  const [isSqlCopied, setIsSqlCopied] = useState(false);
 
   // Coupon states
   const [coupons, setCoupons] = useState<Coupon[]>([]);
@@ -517,7 +521,12 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     let sql = `-- ===================================================================\n`;
     sql += `-- SCRIPT AUTO-EJECUTABLE DE MIGRACIÓN Y RESTAURACIÓN DE DATOS\n`;
     sql += `-- Generado el: ${new Date().toLocaleString()}\n`;
-    sql += `-- Destino compatible: Supabase / PostgreSQL\n`;
+    sql += `-- Destino compatible: Supabase / PostgreSQL / Cloud SQL\n`;
+    sql += `-- \n`;
+    sql += `-- CREDENCIALES POR DEFECTO PARA EL ACCESO AL PANEL ADMINISTRATIVO:\n`;
+    sql += `--   - Administrador: admin   / Contraseña: Admin123!   (PIN: 112233)\n`;
+    sql += `--   - Gerente:       gerente / Contraseña: Gerente123! (PIN: 223344)\n`;
+    sql += `--   - Empleado:      empleado/ Contraseña: Empleado123! (PIN: 334455)\n`;
     sql += `-- ===================================================================\n\n`;
 
     sql += `BEGIN;\n\n`;
@@ -742,12 +751,12 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
         sql += `  ${escapeSqlValue(p.id)},\n`;
         sql += `  ${escapeSqlValue(p.name)},\n`;
         sql += `  ${escapeSqlValue(p.description)},\n`;
-        sql += `  ${p.price},\n`;
+        sql += `  ${escapeSqlValue(p.price ?? 0)},\n`;
         sql += `  ${escapeSqlValue(p.category)},\n`;
         sql += `  ${escapeSqlValue(p.image_url)},\n`;
-        sql += `  ${p.stock},\n`;
-        sql += `  ${p.is_visible},\n`;
-        sql += `  ${p.promotion_discount},\n`;
+        sql += `  ${escapeSqlValue(p.stock ?? 10)},\n`;
+        sql += `  ${escapeSqlValue(p.is_visible !== false)},\n`;
+        sql += `  ${escapeSqlValue(p.promotion_discount ?? 0)},\n`;
         sql += `  ${escapeSqlValue(p.currency || 'CUP')},\n`;
         sql += `  ${escapeSqlValue(p.quantity_prices || [])},\n`;
         sql += `  ${escapeSqlValue(p.variants || [])},\n`;
@@ -769,10 +778,10 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
         sql += `  ${escapeSqlValue(w.role)},\n`;
         sql += `  ${escapeSqlValue(w.name)},\n`;
         sql += `  ${escapeSqlValue(w.phone)},\n`;
-        sql += `  ${w.is_active},\n`;
-        sql += `  ${w.failed_attempts || 0},\n`;
+        sql += `  ${escapeSqlValue(w.is_active !== false)},\n`;
+        sql += `  ${escapeSqlValue(w.failed_attempts ?? 0)},\n`;
         sql += `  ${escapeSqlValue(w.locked_until)},\n`;
-        sql += `  ${w.must_reset_password !== false},\n`;
+        sql += `  ${escapeSqlValue(w.must_reset_password !== false)},\n`;
         sql += `  ${escapeSqlArray(w.permissions)},\n`;
         sql += `  ${escapeSqlValue(w.security_pin)}\n`;
         sql += `) ON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username, password_sha256 = EXCLUDED.password_sha256, role = EXCLUDED.role, name = EXCLUDED.name, phone = EXCLUDED.phone, is_active = EXCLUDED.is_active, failed_attempts = EXCLUDED.failed_attempts, locked_until = EXCLUDED.locked_until, must_reset_password = EXCLUDED.must_reset_password, permissions = EXCLUDED.permissions, security_pin = EXCLUDED.security_pin;\n`;
@@ -794,7 +803,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
         sql += `  ${escapeSqlValue(o.customer_reference)},\n`;
         sql += `  ${escapeSqlValue(o.customer_nickname)},\n`;
         sql += `  ${escapeSqlValue(o.items || [])},\n`;
-        sql += `  ${o.total},\n`;
+        sql += `  ${escapeSqlValue(o.total ?? 0)},\n`;
         sql += `  ${escapeSqlValue(o.status)},\n`;
         sql += `  ${escapeSqlValue(o.processed_by)},\n`;
         sql += `  ${escapeSqlValue(o.processed_role)},\n`;
@@ -817,7 +826,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       sql += `  ${escapeSqlValue(settings.business_hours)},\n`;
       sql += `  ${escapeSqlValue(settings.address)},\n`;
       sql += `  ${escapeSqlValue(settings.currency)},\n`;
-      sql += `  ${settings.about_visible !== false},\n`;
+      sql += `  ${escapeSqlValue(settings.about_visible !== false)},\n`;
       sql += `  ${escapeSqlValue(settings.about_text)},\n`;
       sql += `  ${escapeSqlValue(settings.smart_search_text)},\n`;
       sql += `  ${escapeSqlValue(settings.shop_logo_url)},\n`;
@@ -831,7 +840,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       sql += `  ${escapeSqlValue(settings.shop_logo_type || 'text')},\n`;
       sql += `  ${escapeSqlValue(settings.shop_logo_val)},\n`;
       sql += `  ${escapeSqlArray(settings.currencies)},\n`;
-      sql += `  ${settings.banner_visible === true},\n`;
+      sql += `  ${escapeSqlValue(settings.banner_visible === true)},\n`;
       sql += `  ${escapeSqlValue(settings.banner_text)},\n`;
       sql += `  ${escapeSqlValue(settings.banner_bg)},\n`;
       sql += `  ${escapeSqlValue(settings.banner_text_color)},\n`;
@@ -841,7 +850,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
       sql += `  ${escapeSqlValue(settings.maps_embed_url)},\n`;
       sql += `  ${escapeSqlValue(settings.telegram_bot_token)},\n`;
       sql += `  ${escapeSqlValue(settings.telegram_chat_id)},\n`;
-      sql += `  ${settings.telegram_enabled === true}\n`;
+      sql += `  ${escapeSqlValue(settings.telegram_enabled === true)}\n`;
       sql += `) ON CONFLICT (id) DO UPDATE SET shop_name = EXCLUDED.shop_name, shop_description = EXCLUDED.shop_description, contact_number = EXCLUDED.contact_number, whatsapp_number = EXCLUDED.whatsapp_number, business_hours = EXCLUDED.business_hours, address = EXCLUDED.address, currency = EXCLUDED.currency, about_visible = EXCLUDED.about_visible, about_text = EXCLUDED.about_text, smart_search_text = EXCLUDED.smart_search_text, shop_logo_url = EXCLUDED.shop_logo_url, theme_preset = EXCLUDED.theme_preset, color_primary = EXCLUDED.color_primary, color_header_bg = EXCLUDED.color_header_bg, color_page_bg = EXCLUDED.color_page_bg, color_text = EXCLUDED.color_text, color_card_bg = EXCLUDED.color_card_bg, font_family = EXCLUDED.font_family, shop_logo_type = EXCLUDED.shop_logo_type, shop_logo_val = EXCLUDED.shop_logo_val, currencies = EXCLUDED.currencies, banner_visible = EXCLUDED.banner_visible, banner_text = EXCLUDED.banner_text, banner_bg = EXCLUDED.banner_bg, banner_text_color = EXCLUDED.banner_text_color, loading_text = EXCLUDED.loading_text, maps_option = EXCLUDED.maps_option, maps_coords = EXCLUDED.maps_coords, maps_embed_url = EXCLUDED.maps_embed_url, telegram_bot_token = EXCLUDED.telegram_bot_token, telegram_chat_id = EXCLUDED.telegram_chat_id, telegram_enabled = EXCLUDED.telegram_enabled;\n\n`;
     }
 
@@ -853,9 +862,9 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
         sql += `  ${escapeSqlValue(cp.id)},\n`;
         sql += `  ${escapeSqlValue(cp.code)},\n`;
         sql += `  ${escapeSqlValue(cp.discount_type)},\n`;
-        sql += `  ${cp.discount_value},\n`;
-        sql += `  ${cp.is_active},\n`;
-        sql += `  ${cp.min_purchase_amount || 0},\n`;
+        sql += `  ${escapeSqlValue(cp.discount_value)},\n`;
+        sql += `  ${escapeSqlValue(cp.is_active)},\n`;
+        sql += `  ${escapeSqlValue(cp.min_purchase_amount || 0)},\n`;
         sql += `  ${escapeSqlValue(cp.created_at || new Date().toISOString())}\n`;
         sql += `) ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, discount_type = EXCLUDED.discount_type, discount_value = EXCLUDED.discount_value, is_active = EXCLUDED.is_active, min_purchase_amount = EXCLUDED.min_purchase_amount;\n`;
       });
@@ -872,7 +881,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
         sql += `  ${escapeSqlValue(a.type)},\n`;
         sql += `  ${escapeSqlValue(a.severity)},\n`;
         sql += `  ${escapeSqlValue(a.message)},\n`;
-        sql += `  ${a.resolved}\n`;
+        sql += `  ${escapeSqlValue(a.resolved)}\n`;
         sql += `) ON CONFLICT (id) DO NOTHING;\n`;
       });
       sql += `\n`;
@@ -905,7 +914,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
         sql += `  ${escapeSqlValue(si.type)},\n`;
         sql += `  ${escapeSqlValue(si.message)},\n`;
         sql += `  ${escapeSqlValue(si.created_at || new Date().toISOString())},\n`;
-        sql += `  ${si.resolved || false}\n`;
+        sql += `  ${escapeSqlValue(si.resolved || false)}\n`;
         sql += `) ON CONFLICT (id) DO UPDATE SET resolved = EXCLUDED.resolved;\n`;
       });
       sql += `\n`;
@@ -2256,10 +2265,25 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
               /* Form Box */
               <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-xl">
                 <div className="mb-6">
-                  <span className="text-[9px] bg-amber-500/10 text-amber-400 font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border border-amber-500/20">
-                    Antipiratería Lock Activo
-                  </span>
-                  <p className="text-xs text-slate-400 mt-2.5">
+                  <div className="flex items-center justify-between gap-2 flex-wrap mb-2.5">
+                    <span className="text-[9px] bg-amber-500/10 text-amber-400 font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border border-amber-500/20">
+                      Antipiratería Lock Activo
+                    </span>
+                    
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSqlViewOpen(true);
+                        setIsSqlCopied(false);
+                      }}
+                      className="text-[10px] bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 hover:text-teal-350 font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border border-teal-500/30 transition-all flex items-center gap-1 cursor-pointer"
+                      title="Ver Script de Base de Datos SQL"
+                    >
+                      <Database className="w-3.5 h-3.5 text-teal-400 animate-pulse" />
+                      <span>Script SQL</span>
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-400">
                     El sistema bloqueará temporalmente cualquier usuario con más de <strong>3 intentos incorrectos</strong> consecutivos por un período de 5 minutos.
                   </p>
                 </div>
@@ -4906,6 +4930,37 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                   </div>
                 </div>
 
+                {/* Panel de Credenciales por Defecto */}
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1 bg-amber-500/10 text-amber-500 rounded-lg text-xs">🔐</span>
+                    <h3 className="text-sm font-bold text-slate-100">Cuentas y Contraseñas por Defecto</h3>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    A continuación se listan las cuentas de acceso iniciales pre-configuradas para los diferentes roles del sistema. Estas credenciales se incluirán en el archivo de migración SQL si decides restaurar tu base de datos:
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                    <div className="p-3 bg-slate-800 rounded-xl border border-slate-700 space-y-1.5">
+                      <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Rol: Administrador</span>
+                      <p className="text-xs text-slate-300 font-medium">Usuario: <code className="bg-slate-950 px-1.5 py-0.5 rounded text-slate-200">admin</code></p>
+                      <p className="text-xs text-slate-300 font-medium font-sans">Contraseña: <code className="bg-slate-950 px-1.5 py-0.5 rounded text-slate-200 select-all">Admin123!</code></p>
+                      <p className="text-xs text-slate-300 font-medium font-sans">PIN de Seguridad: <code className="bg-slate-950 px-1.5 py-0.5 rounded text-slate-200">112233</code></p>
+                    </div>
+                    <div className="p-3 bg-slate-800 rounded-xl border border-slate-700 space-y-1.5">
+                      <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Rol: Gerente</span>
+                      <p className="text-xs text-slate-300 font-medium">Usuario: <code className="bg-slate-950 px-1.5 py-0.5 rounded text-slate-200">gerente</code></p>
+                      <p className="text-xs text-slate-300 font-medium font-sans">Contraseña: <code className="bg-slate-950 px-1.5 py-0.5 rounded text-slate-200 select-all">Gerente123!</code></p>
+                      <p className="text-xs text-slate-300 font-medium font-sans">PIN de Seguridad: <code className="bg-slate-950 px-1.5 py-0.5 rounded text-slate-200">223344</code></p>
+                    </div>
+                    <div className="p-3 bg-slate-800 rounded-xl border border-slate-700 space-y-1.5">
+                      <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Rol: Empleado</span>
+                      <p className="text-xs text-slate-300 font-medium">Usuario: <code className="bg-slate-950 px-1.5 py-0.5 rounded text-slate-200">empleado</code></p>
+                      <p className="text-xs text-slate-300 font-medium font-sans">Contraseña: <code className="bg-slate-950 px-1.5 py-0.5 rounded text-slate-200 select-all">Empleado123!</code></p>
+                      <p className="text-xs text-slate-300 font-medium font-sans">PIN de Seguridad: <code className="bg-slate-950 px-1.5 py-0.5 rounded text-slate-200">334455</code></p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Dos Columnas de Exportación */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   
@@ -6716,6 +6771,90 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                 (e.target as any).src = 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=80&q=80';
               }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* SQL Script Viewer Modal from Login */}
+      {isSqlViewOpen && (
+        <div className="fixed inset-0 z-[120] bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in" id="login-sql-viewer-modal">
+          <div className="bg-slate-900 text-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl border border-slate-800 flex flex-col text-xs animate-scale-up">
+            <div className="p-5 bg-slate-950 flex items-center justify-between border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Database className="w-5 h-5 text-teal-400" />
+                <div>
+                  <h3 className="font-bold text-sm text-white">Script de Creación y Sincronización SQL</h3>
+                  <p className="text-[10px] text-slate-400">Ejecuta este código en tu consola de Supabase para tener todas las tablas e ítems configurados</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsSqlViewOpen(false)} 
+                className="text-slate-400 hover:text-white cursor-pointer"
+                title="Cerrar modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto scrollbar-thin">
+              <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-850">
+                <span className="text-slate-300 font-semibold text-[11px]">Dialecto de Base de Datos: <strong className="text-white">PostgreSQL (Supabase)</strong></span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const script = getSqlScriptContent(true);
+                    navigator.clipboard.writeText(script);
+                    setIsSqlCopied(true);
+                    setTimeout(() => setIsSqlCopied(false), 2000);
+                  }}
+                  className="bg-[#14B8A6] hover:bg-teal-600 text-slate-950 font-bold text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer border border-[#14B8A6]/20"
+                >
+                  {isSqlCopied ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-slate-950 font-extrabold" />
+                      <span>¡Copiado con éxito!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-slate-950" />
+                      <span>Copiar Todo el Script</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <div className="relative">
+                <pre className="text-[10px] font-mono bg-slate-950 p-4 rounded-xl max-h-[350px] overflow-y-auto text-slate-300 leading-relaxed border border-slate-850 whitespace-pre scrollbar-thin select-all">
+                  {getSqlScriptContent(true)}
+                </pre>
+                <div className="absolute top-2 right-2 text-[9px] font-mono text-slate-500 bg-slate-950/80 px-2 py-1 rounded border border-slate-850 pointer-events-none">
+                  sql_script.sql
+                </div>
+              </div>
+
+              <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-850 space-y-2">
+                <h4 className="text-xs font-bold text-teal-400 flex items-center gap-1">
+                  <span>💡 Instrucciones de Aplicación de Tablas:</span>
+                </h4>
+                <ol className="text-[11px] text-slate-400 space-y-1.5 list-decimal pl-4 leading-normal">
+                  <li>Inicia sesión en tu cuenta de <strong className="text-slate-200">Supabase</strong>.</li>
+                  <li>Ve a la sección de <strong className="text-slate-200">SQL Editor</strong> en el panel izquierdo de tu proyecto.</li>
+                  <li>Crea una consulta nueva pulsando <strong className="text-slate-200">"New Query"</strong>.</li>
+                  <li>Pega el código completo copiado arriba y haz clic en el botón <strong className="text-teal-400 font-bold">"Run"</strong> para ejecutarlo.</li>
+                  <li>Una vez ejecutado, vuelve aquí, introduce tus credenciales de acceso y la tienda estará 100% activa sincronizando en tiempo real.</li>
+                </ol>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-950 border-t border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsSqlViewOpen(false)}
+                className="px-4 py-2 bg-slate-800 text-white hover:bg-slate-700 font-bold rounded-xl cursor-pointer transition-all"
+              >
+                Entendido, Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}

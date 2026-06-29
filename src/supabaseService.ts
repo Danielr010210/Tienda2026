@@ -344,7 +344,7 @@ export class SupabaseService {
       if (cached) return cached;
     }
     const realMode = this.isReal();
-    const fallbackProducts: Product[] = realMode ? [] : DEFAULT_PRODUCTS;
+    const fallbackProducts: Product[] = DEFAULT_PRODUCTS;
 
     if (!realMode) {
       const local = getLocalStorageItem('shop_products', fallbackProducts);
@@ -405,6 +405,7 @@ export class SupabaseService {
         const localProd = safeLocalProducts.find(lp => lp.id === dbProd.id || lp.name === dbProd.name);
         return {
           ...dbProd,
+          is_visible: dbProd.is_visible !== false,
           currency: dbProd.currency || localProd?.currency || 'CUP',
           quantity_prices: dbProd.quantity_prices || localProd?.quantity_prices || [],
           variants: dbProd.variants || localProd?.variants || [],
