@@ -610,7 +610,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     sql += `);\n\n`;
 
     sql += `CREATE TABLE IF NOT EXISTS shop_settings (\n`;
-    sql += `  id SERIAL PRIMARY KEY,\n`;
+    sql += `  id VARCHAR(255) PRIMARY KEY DEFAULT 'singleton',\n`;
     sql += `  shop_name VARCHAR(255) NOT NULL DEFAULT 'Boutique Minimal',\n`;
     sql += `  shop_description TEXT,\n`;
     sql += `  contact_number VARCHAR(50),\n`;
@@ -818,7 +818,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
     if (settings) {
       sql += `-- Datos para 'shop_settings'\n`;
       sql += `INSERT INTO shop_settings (id, shop_name, shop_description, contact_number, whatsapp_number, business_hours, address, currency, about_visible, about_text, smart_search_text, shop_logo_url, theme_preset, color_primary, color_header_bg, color_page_bg, color_text, color_card_bg, font_family, shop_logo_type, shop_logo_val, currencies, banner_visible, banner_text, banner_bg, banner_text_color, loading_text, maps_option, maps_coords, maps_embed_url, telegram_bot_token, telegram_chat_id, telegram_enabled) VALUES (\n`;
-      sql += `  1,\n`;
+      sql += `  'singleton',\n`;
       sql += `  ${escapeSqlValue(settings.shop_name)},\n`;
       sql += `  ${escapeSqlValue(settings.shop_description)},\n`;
       sql += `  ${escapeSqlValue(settings.contact_number)},\n`;
@@ -1083,24 +1083,22 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
   };
 
   useEffect(() => {
-    if (currentUser) {
-      // Lazy load settings only on mount to establish currency, names, and storefront configurations.
-      // Other database data is loaded on-demand via the tab-specific buttons or manual sync.
-      SupabaseService.getSettings().then(sets => {
-        if (sets) {
-          setSettings(sets);
-          setDraftSettings(prev => {
-            if (!prev) {
-              localStorage.setItem('shop_settings_draft', JSON.stringify(sets));
-              return JSON.parse(JSON.stringify(sets));
-            }
-            return prev;
-          });
-        }
-      }).catch(err => {
-        console.error("Error loading basic mount settings:", err);
-      });
-    }
+    // Lazy load settings only on mount to establish currency, names, and storefront configurations.
+    // Other database data is loaded on-demand via the tab-specific buttons or manual sync.
+    SupabaseService.getSettings().then(sets => {
+      if (sets) {
+        setSettings(sets);
+        setDraftSettings(prev => {
+          if (!prev) {
+            localStorage.setItem('shop_settings_draft', JSON.stringify(sets));
+            return JSON.parse(JSON.stringify(sets));
+          }
+          return prev;
+        });
+      }
+    }).catch(err => {
+      console.error("Error loading basic mount settings:", err);
+    });
   }, [currentUser]);
 
   // Handle Presence Tick simulation like real Supabase Presence
@@ -2272,7 +2270,8 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                     
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
+                        await loadDatabaseData();
                         setIsSqlViewOpen(true);
                         setIsSqlCopied(false);
                       }}
