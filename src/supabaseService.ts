@@ -1777,15 +1777,19 @@ export class SupabaseService {
   }
 
   static logAudit(user: string, action: string, details: string): void {
+    const cleanUser = (user || 'Sistema').trim() || 'Sistema';
+    const cleanAction = (action || 'Acción').trim() || 'Acción';
+    const cleanDetails = (details || 'Sin detalles').trim() || 'Sin detalles';
+
     this.clearCache('audit_logs');
     const audits = getLocalStorageItem('shop_audits', DEFAULT_AUDITS);
     const newAudit: AuditLog = {
       id: `audit-${Date.now()}`,
       timestamp: new Date().toISOString(),
-      user,
+      user: cleanUser,
       role: 'Sistema',
-      action,
-      details
+      action: cleanAction,
+      details: cleanDetails
     };
     audits.unshift(newAudit);
     setLocalStorageItem('shop_audits', audits);
@@ -1796,23 +1800,25 @@ export class SupabaseService {
       try {
         const client = createClient(url, key);
         client.from('audit_logs').insert({
-          user,
+          user: cleanUser,
           role: 'Colaborador',
-          action,
-          details
+          action: cleanAction,
+          details: cleanDetails
         }).then(({ error }) => {
-          if (error) console.error('Auditing insert fail:', error);
+          if (error) {
+            console.error('Auditing insert fail:', error);
+          }
         });
       } catch (err) {
-        console.error(err);
+        console.error('Auditing insert exception:', err);
       }
     }
   }
 
   // AUTHENTICATION ENGINE WITH SHA-256 (MOCK AND REAL SYNCED)
   static async login(username: string, plainPassword: string): Promise<{ success: boolean; worker?: Worker; error?: string }> {
-    const workers = await this.getWorkers();
-    const worker = workers.find(w => w.username.toLowerCase() === username.toLowerCase());
+    const workers = (await this.getWorkers()) || [];
+    const worker = workers.find(w => w && typeof w.username === 'string' && w.username.toLowerCase() === username.toLowerCase());
     
     if (!worker) {
       await this.triggerAlert('intento_fallido', 'low', `Intento de acceso erróneo. Usuario no existente: "${username}"`);

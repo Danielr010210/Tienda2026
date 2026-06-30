@@ -1374,7 +1374,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
 
     try {
       // Verify current password
-      const hashedCurrent = hashSHA256(profileCurrentPassword);
+      const hashedCurrent = await hashSHA256(profileCurrentPassword);
       if (hashedCurrent !== currentUser.password_sha256) {
         setProfileError('La contraseña actual es incorrecta.');
         setIsProfileLoading(false);
