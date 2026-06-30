@@ -34,7 +34,7 @@ export const DEFAULT_SHOP_SETTINGS: ShopSettings = {
   about_visible: true,
 
   // Enlace oficial de la tienda (Utilizado para compartir y generar el Código QR dinámico)
-  store_url: 'https://ais-pre-ab4uuppefwsrs3265ndeqg-801981886560.us-east1.run.app',
+  store_url: 'https://danielr010210.github.io/Tienda2026/',
 
   // Texto explicativo de la sección "Sobre Nosotros"
   about_text: 'La experiencia de compra más rápida de la web.',
