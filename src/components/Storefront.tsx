@@ -262,7 +262,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
     if (settings?.shop_name) {
       document.title = settings.shop_name;
     } else {
-      document.title = 'Boutique Minimal';
+      document.title = 'Cubanos en Miami';
     }
   }, [settings?.shop_name]);
 
@@ -1026,7 +1026,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
           })()}
           <div>
             <h1 className="text-base font-bold text-slate-900 tracking-tight">
-              {settings?.shop_name || 'Boutique Minimal'}
+              {settings?.shop_name || 'Cubanos en Miami'}
             </h1>
             <p className="text-[10px] text-slate-400 font-medium">{settings?.smart_search_text || 'Búsqueda Inteligente • Supabase Live'}</p>
           </div>
@@ -1083,19 +1083,19 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
               Despacho en 24 Horas
             </span>
             <h2 className="text-2xl md:text-3.5xl font-bold tracking-tight mt-3 text-white leading-tight">
-              {settings?.shop_name || 'Boutique Minimal'}
+              {settings?.shop_name || 'Cubanos en Miami'}
             </h2>
             <p className="text-slate-300 text-sm mt-2 leading-relaxed">
               {settings?.shop_description || 'Explora nuestro catálogo exclusivo de tecnología, moda, audio e indumentaria.'}
             </p>
             <div className="flex flex-wrap gap-x-4 gap-y-2 mt-4 text-[11px] text-slate-400">
-              <span className="flex items-center gap-1">⌚ {settings?.business_hours || 'Lun a Sáb'}</span>
-              <span className="flex items-center gap-1">📍 {settings?.address || 'Madrid, España'}</span>
+              <span className="flex items-center gap-1">⌚ {settings?.business_hours || 'Lunes a Sábado 9am-5pm (Domingo Cerrado)'}</span>
+              <span className="flex items-center gap-1">📍 {settings?.address || '16335 NW 48th Ave Miami Gardens, FL 33014'}</span>
             </div>
           </div>
           <div className="z-10 bg-slate-800/60 p-4 border border-slate-700/60 rounded-xl text-center backdrop-blur shrink-0 w-full md:w-auto">
             <p className="text-[10px] text-slate-400 font-semibold tracking-wide uppercase">Asistencia Directa</p>
-            <p className="text-sm font-bold text-teal-400 mt-1">{settings?.contact_number || '+34 600 000 000'}</p>
+            <p className="text-sm font-bold text-teal-400 mt-1">{settings?.contact_number || '+1 7862942257'}</p>
             <p className="text-[10px] text-slate-500 mt-0.5">Soporte por WhatsApp automatizado</p>
           </div>
         </div>
@@ -2562,7 +2562,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
 
       {/* Footer minimal info */}
       <footer className="bg-slate-900 border-t border-slate-800 text-slate-400 py-8 px-6 mt-16 text-xs text-center font-medium">
-        <p>© 2026 {settings?.shop_name || 'Boutique Minimal'}. Todos los derechos reservados.</p>
+        <p>© 2026 {settings?.shop_name || 'Cubanos en Miami'}. Todos los derechos reservados.</p>
         <div className="mt-2 text-[10px] text-slate-500 max-w-md mx-auto space-y-1">
           <p>⌚ Horario de Atención: <strong>{settings?.business_hours || 'Lun a Sáb'}</strong></p>
           <p>📍 Dirección de la Tienda: {settings?.address || 'Sin dirección declarada'}</p>
@@ -2718,7 +2718,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
             <div className="p-6 space-y-6 text-center">
               <div>
                 <h4 className="text-xs font-black text-slate-800 uppercase tracking-wide">
-                  {settings?.shop_name || 'Boutique Minimal'}
+                  {settings?.shop_name || 'Cubanos en Miami'}
                 </h4>
                 <p className="text-[10px] text-slate-500 mt-1 max-w-xs mx-auto font-medium">
                   {settings?.shop_description || 'Artículos premium en un solo toque.'}

@@ -2272,20 +2272,6 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                     <span className="text-[9px] bg-amber-500/10 text-amber-400 font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border border-amber-500/20">
                       Antipiratería Lock Activo
                     </span>
-                    
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await loadDatabaseData();
-                        setIsSqlViewOpen(true);
-                        setIsSqlCopied(false);
-                      }}
-                      className="text-[10px] bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 hover:text-teal-350 font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border border-teal-500/30 transition-all flex items-center gap-1 cursor-pointer"
-                      title="Ver Script de Base de Datos SQL"
-                    >
-                      <Database className="w-3.5 h-3.5 text-teal-400 animate-pulse" />
-                      <span>Script SQL</span>
-                    </button>
                   </div>
                   <p className="text-xs text-slate-400">
                     El sistema bloqueará temporalmente cualquier usuario con más de <strong>3 intentos incorrectos</strong> consecutivos por un período de 5 minutos.

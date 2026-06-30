@@ -56,7 +56,7 @@ insert into shop_settings (
   about_visible, about_text, smart_search_text, shop_logo_url, theme_preset, color_primary, color_header_bg, 
   color_page_bg, color_text, color_card_bg, font_family, shop_logo_type, shop_logo_val, currencies, 
   banner_visible, banner_text, banner_bg, banner_text_color, loading_text, maps_option, maps_coords, 
-  maps_embed_url, telegram_bot_token, telegram_chat_id, telegram_enabled
+  maps_embed_url, telegram_bot_token, telegram_chat_id, telegram_enabled, store_url
 ) values (
   'singleton', 
   'Cubanos en Miami', 
@@ -90,7 +90,8 @@ insert into shop_settings (
   '', 
   '', 
   '', 
-  false
+  false,
+  'https://ais-pre-ab4uuppefwsrs3265ndeqg-801981886560.us-east1.run.app'
 )
 on conflict (id) do update set
   shop_name = excluded.shop_name,
@@ -124,7 +125,8 @@ on conflict (id) do update set
   maps_embed_url = excluded.maps_embed_url,
   telegram_bot_token = excluded.telegram_bot_token,
   telegram_chat_id = excluded.telegram_chat_id,
-  telegram_enabled = excluded.telegram_enabled;
+  telegram_enabled = excluded.telegram_enabled,
+  store_url = excluded.store_url;
 
 -- 3. TABLA DE PRODUCTOS
 create table if not exists products (
@@ -157,12 +159,14 @@ create table if not exists workers (
   locked_until timestamp with time zone,
   must_reset_password boolean not null default true,
   permissions text[] default '{}'::text[],
+  security_pin varchar(6) default '',
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
 -- Asegurar compatibilidad para bases de datos ya creadas previamente
 alter table workers add column if not exists must_reset_password boolean not null default true;
 alter table workers add column if not exists permissions text[] default '{}'::text[];
+alter table workers add column if not exists security_pin varchar(6) default '';
 alter table products add column if not exists currency varchar default 'CUP';
 alter table products add column if not exists variants jsonb default '[]'::jsonb;
 alter table products add column if not exists gallery_images text[] default '{}'::text[];
@@ -201,11 +205,11 @@ alter table shop_settings add column if not exists store_url varchar default '';
 -- Admin: admin o Admin123!
 -- Gerente: Gerente123!
 -- Empleado: Empleado123!
-insert into workers (id, username, password_sha256, role, name, phone, is_active, must_reset_password, permissions)
+insert into workers (id, username, password_sha256, role, name, phone, is_active, must_reset_password, permissions, security_pin)
 values 
-  ('45b4e7a0-7eb4-45cd-b00f-fffe0976dc6d'::uuid, 'admin', '0a5bc3e342432f1bad92ffd51b785343ec72906cdba6a26131060b008e786656', 'admin', 'Sofía Rodríguez (Admin)', '+506 7000-1111', true, false, array['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']::text[]),
-  ('63c1a697-2131-4814-a5a0-70b8bffa419b'::uuid, 'gerente', '68e059127789ea920ad39f186b60eaa3acfef029a4c8808d2d271e500c992d4a', 'gerente', 'Carlos Mendoza (Gerente)', '+506 7000-2222', true, true, array['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']::text[]),
-  ('90079414-1cf1-4286-9a2a-547fa466370e'::uuid, 'empleado', 'a5eb10313b9116ce94dc36afd5b653bf03fee85101278b1a0f044ebc21a98a93', 'empleado', 'Mateo Gómez (Empleado)', '+506 7000-3333', true, true, array['ver_pedidos', 'ver_inventario']::text[])
+  ('45b4e7a0-7eb4-45cd-b00f-fffe0976dc6d'::uuid, 'admin', '3eb3fe66b31e3b4d10fa70b5cad49c7112294af6ae4e476a1c405155d45aa121', 'admin', 'Sofía Rodríguez (Admin)', '+506 7000-1111', true, false, array['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']::text[], '112233'),
+  ('63c1a697-2131-4814-a5a0-70b8bffa419b'::uuid, 'gerente', '68e059127789ea920ad39f186b60eaa3acfef029a4c8808d2d271e500c992d4a', 'gerente', 'Carlos Mendoza (Gerente)', '+506 7000-2222', true, true, array['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']::text[], '223344'),
+  ('90079414-1cf1-4286-9a2a-547fa466370e'::uuid, 'empleado', 'a5eb10313b9116ce94dc36afd5b653bf03fee85101278b1a0f044ebc21a98a93', 'empleado', 'Mateo Gómez (Empleado)', '+506 7000-3333', true, true, array['ver_pedidos', 'ver_inventario']::text[], '334455')
 on conflict (username) do update set
   password_sha256 = excluded.password_sha256,
   role = excluded.role,
@@ -213,7 +217,8 @@ on conflict (username) do update set
   phone = excluded.phone,
   is_active = excluded.is_active,
   must_reset_password = excluded.must_reset_password,
-  permissions = excluded.permissions;
+  permissions = excluded.permissions,
+  security_pin = excluded.security_pin;
 
 -- 5. TABLA DE PEDIDOS / FACTURAS
 create table if not exists orders (
@@ -578,7 +583,7 @@ insert into shop_settings (
   about_visible, about_text, smart_search_text, shop_logo_url, theme_preset, color_primary, color_header_bg, 
   color_page_bg, color_text, color_card_bg, font_family, shop_logo_type, shop_logo_val, currencies, 
   banner_visible, banner_text, banner_bg, banner_text_color, loading_text, maps_option, maps_coords, 
-  maps_embed_url, telegram_bot_token, telegram_chat_id, telegram_enabled
+  maps_embed_url, telegram_bot_token, telegram_chat_id, telegram_enabled, store_url
 ) values (
   'singleton', 
   'Cubanos en Miami', 
@@ -612,7 +617,8 @@ insert into shop_settings (
   '', 
   '', 
   '', 
-  false
+  false,
+  'https://ais-pre-ab4uuppefwsrs3265ndeqg-801981886560.us-east1.run.app'
 )
 on conflict (id) do update set
   shop_name = excluded.shop_name,
@@ -646,7 +652,8 @@ on conflict (id) do update set
   maps_embed_url = excluded.maps_embed_url,
   telegram_bot_token = excluded.telegram_bot_token,
   telegram_chat_id = excluded.telegram_chat_id,
-  telegram_enabled = excluded.telegram_enabled;
+  telegram_enabled = excluded.telegram_enabled,
+  store_url = excluded.store_url;
 
 -- 3. TABLA DE PRODUCTOS SI NO EXISTE
 create table if not exists products (
@@ -679,6 +686,7 @@ create table if not exists workers (
   locked_until timestamp with time zone,
   must_reset_password boolean not null default true,
   permissions text[] default '{}'::text[],
+  security_pin varchar(6) default '',
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -686,11 +694,11 @@ create table if not exists workers (
 -- Admin: admin o Admin123!
 -- Gerente: Gerente123!
 -- Empleado: Empleado123!
-insert into workers (id, username, password_sha256, role, name, phone, is_active, must_reset_password, permissions)
+insert into workers (id, username, password_sha256, role, name, phone, is_active, must_reset_password, permissions, security_pin)
 values 
-  ('45b4e7a0-7eb4-45cd-b00f-fffe0976dc6d'::uuid, 'admin', '0a5bc3e342432f1bad92ffd51b785343ec72906cdba6a26131060b008e786656', 'admin', 'Sofía Rodríguez (Admin)', '+506 7000-1111', true, false, array['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']::text[]),
-  ('63c1a697-2131-4814-a5a0-70b8bffa419b'::uuid, 'gerente', '68e059127789ea920ad39f186b60eaa3acfef029a4c8808d2d271e500c992d4a', 'gerente', 'Carlos Mendoza (Gerente)', '+506 7000-2222', true, true, array['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']::text[]),
-  ('90079414-1cf1-4286-9a2a-547fa466370e'::uuid, 'empleado', 'a5eb10313b9116ce94dc36afd5b653bf03fee85101278b1a0f044ebc21a98a93', 'empleado', 'Mateo Gómez (Empleado)', '+506 7000-3333', true, true, array['ver_pedidos', 'ver_inventario']::text[])
+  ('45b4e7a0-7eb4-45cd-b00f-fffe0976dc6d'::uuid, 'admin', '3eb3fe66b31e3b4d10fa70b5cad49c7112294af6ae4e476a1c405155d45aa121', 'admin', 'Sofía Rodríguez (Admin)', '+506 7000-1111', true, false, array['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']::text[], '112233'),
+  ('63c1a697-2131-4814-a5a0-70b8bffa419b'::uuid, 'gerente', '68e059127789ea920ad39f186b60eaa3acfef029a4c8808d2d271e500c992d4a', 'gerente', 'Carlos Mendoza (Gerente)', '+506 7000-2222', true, true, array['ver_pedidos', 'procesar_pedidos', 'ver_inventario', 'editar_inventario', 'ver_alertas', 'ver_soporte']::text[], '223344'),
+  ('90079414-1cf1-4286-9a2a-547fa466370e'::uuid, 'empleado', 'a5eb10313b9116ce94dc36afd5b653bf03fee85101278b1a0f044ebc21a98a93', 'empleado', 'Mateo Gómez (Empleado)', '+506 7000-3333', true, true, array['ver_pedidos', 'ver_inventario']::text[], '334455')
 on conflict (username) do update set
   password_sha256 = excluded.password_sha256,
   role = excluded.role,
@@ -698,7 +706,8 @@ on conflict (username) do update set
   phone = excluded.phone,
   is_active = excluded.is_active,
   must_reset_password = excluded.must_reset_password,
-  permissions = excluded.permissions;
+  permissions = excluded.permissions,
+  security_pin = excluded.security_pin;
 
 -- 5. TABLA DE PEDIDOS / FACTURAS SI NO EXISTE
 create table if not exists orders (
