@@ -3330,6 +3330,7 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                                     <th className="px-5 py-3 text-right">Precio Base</th>
                                     <th className="px-5 py-3 text-center">Descuento Promo</th>
                                     <th className="px-5 py-3 text-right">Precio de Rebaja</th>
+                                    <th className="px-5 py-3 text-center">Precios x Cantidad</th>
                                     <th className="px-5 py-3 text-center">Stock Físico</th>
                                     <th className="px-5 py-3 text-center">Visible Tienda</th>
                                     <th className="px-5 py-3 text-center">Acción</th>
@@ -3381,6 +3382,19 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                                             <span className="text-red-650 font-black">{formatCurrency(discounted, currencySymbol)}</span>
                                           ) : (
                                             <span className="text-slate-500 font-bold">{formatCurrency(prod.price, currencySymbol)}</span>
+                                          )}
+                                        </td>
+                                        <td className="px-5 py-3 text-center">
+                                          {prod.quantity_prices && prod.quantity_prices.length > 0 ? (
+                                            <div className="flex flex-col gap-1 items-center">
+                                              {[...prod.quantity_prices].sort((a, b) => a.quantity - b.quantity).map((qp, i) => (
+                                                <span key={i} className="bg-teal-50 text-teal-800 font-bold text-[10px] px-2 py-0.5 rounded border border-teal-100/60 block whitespace-nowrap">
+                                                  ≥{qp.quantity} u: <strong className="text-teal-950">{formatCurrency(qp.price, currencySymbol)}</strong>
+                                                </span>
+                                              ))}
+                                            </div>
+                                          ) : (
+                                            <span className="text-slate-400 text-xs italic">No definido</span>
                                           )}
                                         </td>
                                         <td className="px-5 py-3 text-center">
@@ -5704,25 +5718,31 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
               <div className="bg-slate-50 border border-slate-200/60 p-4 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-[11px] font-black uppercase text-slate-800 tracking-wider flex items-center gap-2">
-                    🏷️ Escalas de Precio por Cantidad (Opcional)
+                    🏷️ Escalas de Precio por Cantidad (Opcional - Máx 4)
                   </h4>
                   <button
                     type="button"
+                    disabled={(productForm.quantity_prices || []).length >= 4}
                     onClick={() => {
                       const currentPrices = productForm.quantity_prices || [];
+                      if (currentPrices.length >= 4) return;
                       setProductForm({
                         ...productForm,
                         quantity_prices: [...currentPrices, { quantity: 1, price: 0 }]
                       });
                     }}
-                    className="bg-[#14B8A6] hover:bg-teal-650 text-slate-950 font-black text-[10px] py-1 px-2.5 rounded-lg flex items-center gap-1 transition-all cursor-pointer"
+                    className={`font-black text-[10px] py-1 px-2.5 rounded-lg flex items-center gap-1 transition-all cursor-pointer ${
+                      (productForm.quantity_prices || []).length >= 4
+                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                        : 'bg-[#14B8A6] hover:bg-teal-650 text-slate-950 shadow-sm'
+                    }`}
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>Agregar Escala</span>
+                    <span>Agregar Escala ({(productForm.quantity_prices || []).length}/4)</span>
                   </button>
                 </div>
                 <p className="text-[10px] text-slate-500">
-                  Define precios preferenciales según el volumen de compra. Ejemplo: 1 por $3.00, o 6 por $1.00 cada uno. Los demás precios son opcionales.
+                  Define precios preferenciales según el volumen de compra. Puedes definir hasta 4 escalas. Ejemplo: 1 por $3.00, o 6 por $1.00 cada uno.
                 </p>
 
                 {(productForm.quantity_prices || []).length === 0 ? (
@@ -5854,15 +5874,25 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
 
                   {productForm.image_url && (
                     <div className="mt-2 flex items-center gap-2 bg-white p-1 rounded-xl border border-gray-150">
-                      <img
-                        src={productForm.image_url}
-                        alt="Vista previa"
-                        className="w-9 h-9 object-cover rounded-lg"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => {
-                          (e.target as any).src = 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=80&q=80';
-                        }}
-                      />
+                      <button
+                        type="button"
+                        onClick={() => setPreviewImage(productForm.image_url)}
+                        className="w-9 h-9 rounded-lg overflow-hidden cursor-pointer relative group border border-slate-100 flex items-center justify-center shrink-0"
+                        title="Ampliar imagen"
+                      >
+                        <img
+                          src={productForm.image_url}
+                          alt="Vista previa"
+                          className="w-full h-full object-cover rounded-lg group-hover:scale-105 transition-transform"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            (e.target as any).src = 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=80&q=80';
+                          }}
+                        />
+                        <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <Eye className="w-3.5 h-3.5 text-white" />
+                        </div>
+                      </button>
                       <span className="text-[9px] text-slate-400 truncate max-w-[200px] font-mono">
                         {productForm.image_url}
                       </span>
@@ -5917,15 +5947,25 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
                           required
                         />
                         {imgUrl && (
-                          <img
-                            src={imgUrl}
-                            alt="miniatura"
-                            className="w-7 h-7 object-cover rounded-md border"
-                            referrerPolicy="no-referrer"
-                            onError={(e) => {
-                              (e.target as any).src = 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=80&q=80';
-                            }}
-                          />
+                          <button
+                            type="button"
+                            onClick={() => setPreviewImage(imgUrl)}
+                            className="w-7 h-7 rounded-md overflow-hidden cursor-pointer relative group border border-slate-100 flex items-center justify-center shrink-0"
+                            title="Ampliar imagen"
+                          >
+                            <img
+                              src={imgUrl}
+                              alt="miniatura"
+                              className="w-full h-full object-cover rounded-md group-hover:scale-105 transition-transform"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => {
+                                (e.target as any).src = 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=80&q=80';
+                              }}
+                            />
+                            <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <Eye className="w-3 h-3 text-white" />
+                            </div>
+                          </button>
                         )}
                         <button
                           type="button"
@@ -6066,15 +6106,25 @@ export default function AdminPanel({ onClose, onProductsUpdated }: AdminPanelPro
 
                         {variant.image_url && (
                           <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-lg border border-slate-100">
-                            <img
-                              src={variant.image_url}
-                              alt="previa variante"
-                              className="w-6 h-6 object-cover rounded-md border"
-                              referrerPolicy="no-referrer"
-                              onError={(e) => {
-                                (e.target as any).src = 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=80&q=80';
-                              }}
-                            />
+                            <button
+                              type="button"
+                              onClick={() => setPreviewImage(variant.image_url)}
+                              className="w-6 h-6 rounded-md overflow-hidden cursor-pointer relative group border border-slate-200 flex items-center justify-center shrink-0"
+                              title="Ampliar imagen"
+                            >
+                              <img
+                                src={variant.image_url}
+                                alt="previa variante"
+                                className="w-full h-full object-cover rounded-md group-hover:scale-105 transition-transform"
+                                referrerPolicy="no-referrer"
+                                onError={(e) => {
+                                  (e.target as any).src = 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=80&q=80';
+                                }}
+                              />
+                              <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <Eye className="w-2.5 h-2.5 text-white" />
+                              </div>
+                            </button>
                             <span className="text-[8px] text-slate-400 truncate max-w-[250px] font-mono">
                               {variant.image_url}
                             </span>

@@ -76,7 +76,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   }, [dbCategories, products]);
 
   // Cart States
-  const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
+  const [cart, setCart] = useState<{ product: Product; quantity: number; selectedVariant?: ProductVariant }[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
 
   // Checkout Form States
@@ -609,7 +609,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
   const getDiscountedTotals = () => {
     const cartTotalsByCurrency = cart.reduce((acc, item) => {
       const currency = item.product.currency || 'CUP';
-      const finalPrice = getProductUnitPriceForQty(item.product, item.quantity);
+      const finalPrice = getProductUnitPriceForQty(item.product, item.quantity, item.selectedVariant);
       acc[currency] = (acc[currency] || 0) + finalPrice * item.quantity;
       return acc;
     }, {} as Record<string, number>);
@@ -1376,7 +1376,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
                             <span>⚡ Precio por cantidad:</span>
                           </p>
                           <div className="flex flex-wrap gap-1">
-                            {product.quantity_prices.map((qp, idx) => (
+                            {[...product.quantity_prices].sort((a, b) => a.quantity - b.quantity).map((qp, idx) => (
                               <span key={idx} className="bg-teal-50 border border-teal-100/60 text-teal-800 font-bold text-[9px] px-1.5 py-0.5 rounded" title={`Para compras de ${qp.quantity} o más unidades`}>
                                 {qp.quantity}+ ud: {formatCurrency(product.promotion_discount > 0 ? qp.price * (1 - product.promotion_discount / 100) : qp.price, currencySymbol)}
                               </span>
@@ -1486,12 +1486,22 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
                       key={`${item.product.id}-${item.selectedVariant?.id || 'base'}`}
                       className="flex items-center gap-3.5 p-3.5 bg-slate-50/70 border border-slate-100 rounded-xl"
                     >
-                      <img 
-                        src={item.selectedVariant?.image_url || item.product.image_url} 
-                        alt={item.product.name}
-                        referrerPolicy="no-referrer"
-                        className="w-12 h-12 object-cover rounded-lg shrink-0 border border-gray-200"
-                      />
+                      <button
+                        type="button"
+                        onClick={() => setExpandedImage(item.selectedVariant?.image_url || item.product.image_url)}
+                        className="w-12 h-12 rounded-lg shrink-0 border border-gray-200 overflow-hidden relative group cursor-zoom-in"
+                        title="Ver en grande"
+                      >
+                        <img 
+                          src={item.selectedVariant?.image_url || item.product.image_url} 
+                          alt={item.product.name}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover rounded-lg group-hover:scale-105 transition-transform"
+                        />
+                        <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <Eye className="w-4.5 h-4.5 text-white" />
+                        </div>
+                      </button>
                       <div className="flex-1 min-w-0">
                         <h4 className="font-bold text-slate-800 text-xs truncate">
                           {item.product.name}
@@ -2185,12 +2195,17 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
                           onClick={() => {
                             setCurrentModalImage(selectedProduct.image_url || '');
                             setActiveVariant(null);
+                            setExpandedImage(selectedProduct.image_url || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=600');
                           }}
-                          className={`w-10 h-10 rounded-lg border-2 overflow-hidden shrink-0 transition-all ${
+                          className={`w-10 h-10 rounded-lg border-2 overflow-hidden shrink-0 transition-all relative group cursor-zoom-in ${
                             (!activeVariant && currentModalImage === selectedProduct.image_url) ? 'border-teal-600 scale-105' : 'border-gray-200'
                           }`}
+                          title="Ampliar imagen"
                         >
                           <img src={selectedProduct.image_url} alt="Principal" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <Eye className="w-4 h-4 text-white" />
+                          </div>
                         </button>
 
                         {/* Imágenes de la Galería */}
@@ -2200,12 +2215,17 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
                             type="button"
                             onClick={() => {
                               setCurrentModalImage(img);
+                              setExpandedImage(img);
                             }}
-                            className={`w-10 h-10 rounded-lg border-2 overflow-hidden shrink-0 transition-all ${
+                            className={`w-10 h-10 rounded-lg border-2 overflow-hidden shrink-0 transition-all relative group cursor-zoom-in ${
                               (currentModalImage === img) ? 'border-teal-600 scale-105' : 'border-gray-200'
                             }`}
+                            title="Ampliar imagen"
                           >
                             <img src={img} alt={`Galería ${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <Eye className="w-4 h-4 text-white" />
+                            </div>
                           </button>
                         ))}
 
@@ -2217,16 +2237,20 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
                             onClick={() => {
                               setCurrentModalImage(variant.image_url);
                               setActiveVariant(variant);
+                              setExpandedImage(variant.image_url);
                             }}
-                            className={`w-10 h-10 rounded-lg border-2 overflow-hidden shrink-0 transition-all relative ${
+                            className={`w-10 h-10 rounded-lg border-2 overflow-hidden shrink-0 transition-all relative group cursor-zoom-in ${
                               (activeVariant?.id === variant.id) ? 'border-teal-600 scale-105' : 'border-gray-200'
                             }`}
-                            title={variant.name}
+                            title={`Ampliar variante: ${variant.name}`}
                           >
                             <img src={variant.image_url} alt={variant.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                            <span className="absolute bottom-0 inset-x-0 bg-slate-900/60 text-white text-[7px] text-center truncate px-0.5 font-bold">
+                            <span className="absolute bottom-0 inset-x-0 bg-slate-900/60 text-white text-[7px] text-center truncate px-0.5 font-bold z-10">
                               {variant.name}
                             </span>
+                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <Eye className="w-4 h-4 text-white" />
+                            </div>
                           </button>
                         ))}
                       </div>
@@ -2345,7 +2369,7 @@ export default function Storefront({ onAdminOpen, productsRefresher, previewSett
                         <span>⚡ Descuentos por Cantidad (Mayoreo):</span>
                       </p>
                       <div className="grid grid-cols-2 gap-2 text-[10px]">
-                        {selectedProduct.quantity_prices.map((qp, idx) => (
+                        {[...selectedProduct.quantity_prices].sort((a, b) => a.quantity - b.quantity).map((qp, idx) => (
                           <div key={idx} className="flex justify-between items-center bg-white border border-slate-100 p-2 rounded-lg">
                             <span className="font-medium text-slate-500">≥ {qp.quantity} unidades:</span>
                             <span className="font-extrabold text-teal-700">
